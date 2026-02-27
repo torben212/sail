@@ -116,6 +116,14 @@ http://www.cl.cam.ac.uk/~pes20/sail/.
     (libsail (= :version))
     (omd (and (>= 1.3.1) (< 1.4.0)))))
 
+    
+(package
+  (name sail_noninterference_backend)
+  (synopsis "Sail checking noninterference")
+  (depends
+    (libsail (= :version))))
+   
+
 (package
   (name sail_doc_backend)
   (synopsis "Sail documentation generator")

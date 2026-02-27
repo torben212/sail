@@ -1,1 +1,5 @@
 snapshots/** linguist-generated
+*.lem text eol=lf
+*.opam text eol=lf
+*.ml text eol=lf
+*.mli text eol=lf
