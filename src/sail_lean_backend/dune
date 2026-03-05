@@ -1,10 +1,10 @@
 (env
  (dev
   (flags
-   (:standard -w -33 -w -27 -w -32 -w -26 -w -37)))
+   (:standard -w -33 -w -27 -w -32 -w -26 -w -37 -w -39 -w -67 -w -69 -w -49)))
  (release
   (flags
-   (:standard -w -33 -w -27 -w -32 -w -26 -w -37))))
+   (:standard -w -33 -w -27 -w -32 -w -26 -w -37 -w -39 -w -67 -w -69 -w -49))))
 
 (executable
  (name sail_plugin_lean)

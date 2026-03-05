@@ -7,7 +7,7 @@
    (:standard -w -33 -w -27 -w -32 -w -26 -w -37 -w -39 -w -67 -w -69 -w -49))))
 
 (executable
- (name sail_plugin_c)
+ (name sail_plugin_noninterference)
  (modes
   (native plugin)
   (byte plugin))
@@ -17,5 +17,5 @@
  (section
   (site
    (libsail plugins)))
- (package sail_c_backend)
- (files sail_plugin_c.cmxs sail_plugin_c.cma))
+ (package sail_noninterference_backend)
+ (files sail_plugin_noninterference.cmxs sail_plugin_noninterference.cma))
