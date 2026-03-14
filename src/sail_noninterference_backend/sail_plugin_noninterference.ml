@@ -2,6 +2,7 @@ open Libsail
 open Interactive.State
 open Ast
 open Ast_util
+open Ast_compare
 open Jib
 open Jib_util
 open Value2
@@ -24,6 +25,39 @@ let noninterference_options =
       "enable verbose output for noninterference analysis" 
     );
   ]
+
+let rec check_expr env expr = 
+  match expr with
+  | BinOp(op, e1, e2) -> """Vi skal nok ikke engang bruge binop, men ved ikke om vi har andre regler for high/low når det er bool vs int"""
+      check_expr env e1; 
+      check_expr env e2;
+      match op with
+      | Add | Sub | Mul -> ()
+      | Div -> ()
+      | And | Or -> ()
+      | Eq | Neq | Lt | Gt | Leq | Geq -> ()
+      | _ -> failwith "Unsupported binary operator"
+  | UnOp(op, e) ->
+      check_expr env e;
+      match op with
+      | Neg -> ()
+      | Not -> ()
+      | _ -> failwith "Unsupported unary operator"
+  | Assign(var, value) -> 
+      check_expr env value;
+      ()
+      
+  | If(cond, then_branch, else_branch) -> ()
+  | While(cond, body) -> ()
+  | _ -> ()
+  
+
+let check_ast env ast = 
+  List.iter (fun def -> 
+    match def with
+    | FunctionDef(_, _, body) -> check_expr env body
+    | _ -> ()
+  ) ast.defs  
 
 let noninterference_target out_file { ast; effect_info; env; _ } =
   (* Handle optional output file *)
@@ -48,9 +82,11 @@ let noninterference_target out_file { ast; effect_info; env; _ } =
     flush_all ()
   );
   
-  (* Your noninterference analysis implementation goes here *)
-  (* This function should return unit () *)
-  failwith "not yet implemented"
+  check_ast env ast
+
+
+
+
 
 let _ =
   Target.register
