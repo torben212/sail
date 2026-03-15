@@ -26,31 +26,42 @@ let noninterference_options =
     );
   ]
 
+let is_binop id =
+  let op = string_of_id id in
+  match op with
+  | "+" | "-" | "*" | "/" | "&&" | "||" | "==" | "!=" | "<" | ">" | "<=" | ">=" -> true
+  | _ -> false
+
 let rec check_expr (env : Type_check.env) (expr) : unit = 
   match expr with
-  | BinOp(op, e1, e2) -> """Vi skal nok ikke engang bruge binop, men ved ikke om vi har andre regler for high/low når det er bool vs int"""
-      check_expr env e1; 
+  | E_aux (E_app (id, [e1; e2]), _) when is_binop id ->
+      check_expr env e1;
       check_expr env e2;
-      match op with
-      | Add | Sub | Mul -> ()
-      | Div -> ()
-      | And | Or -> ()
-      | Eq | Neq | Lt | Gt | Leq | Geq -> ()
-      | _ -> failwith "Unsupported binary operator"
-  | UnOp(op, e) ->
-      check_expr env e;
-      match op with
-      | Neg -> ()
-      | Not -> ()
-      | _ -> failwith "Unsupported unary operator"
-  | Assign(var, value) -> 
+      failwith "Binary operator handling not implemented yet"
+      (* handle the operator id here *)
+  | E_aux (E_lit lit, _) ->
+      (* handle literal *)
+      failwith "Literal handling not implemented yet"
+  | E_aux (E_assign (lexp, value), _) ->
+      check_lexp env lexp;
       check_expr env value;
+      (* handle assignment *)
+  | E_aux (E_id id, _) ->
+      (* handle variable *)
       ()
-      
-  | If(cond, then_branch, else_branch) -> ()
-  | While(cond, body) -> ()
+  | E_aux (E_if (cond, then_exp, else_exp), _) ->
+      check_expr env cond;
+      check_expr env then_exp;
+      check_expr env else_exp;
+      (* handle if statement *)
   | _ -> ()
-  
+
+and check_lexp (env : Type_check.env) (lexp) : unit =
+  match lexp with
+  | LE_aux (LE_id id, _) -> ()
+  | LE_aux (LE_deref exp, _) -> check_expr env exp
+  | LE_aux (LE_field (lexp, _), _) -> check_lexp env lexp
+  | _ -> ()
 
 let check_ast (env : Type_check.env) (ast : Type_check.typed_ast) = 
   List.iter (fun def -> 
@@ -89,10 +100,6 @@ let noninterference_target out_file { ast; effect_info; env; _ } =
   );
   
   check_ast env ast
-
-
-
-
 
 let _ =
   Target.register
