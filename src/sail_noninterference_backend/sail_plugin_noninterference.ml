@@ -26,7 +26,7 @@ let noninterference_options =
     );
   ]
 
-let rec check_expr env expr = 
+let rec check_expr (env : Type_check.env) (expr) : unit = 
   match expr with
   | BinOp(op, e1, e2) -> """Vi skal nok ikke engang bruge binop, men ved ikke om vi har andre regler for high/low når det er bool vs int"""
       check_expr env e1; 
@@ -52,10 +52,16 @@ let rec check_expr env expr =
   | _ -> ()
   
 
-let check_ast env ast = 
+let check_ast (env : Type_check.env) (ast : Type_check.typed_ast) = 
   List.iter (fun def -> 
     match def with
-    | FunctionDef(_, _, body) -> check_expr env body
+    | DEF_aux (DEF_fundef (FD_aux (FD_function (_, _, funcls), _)), _) ->
+        List.iter 
+          (fun (FCL_aux (FCL_funcl (_, pexp), _)) ->
+            match pexp with
+            |Pat_aux (Pat_exp (_, body), _) -> check_expr env body
+            | _ -> ())
+            funcls
     | _ -> ()
   ) ast.defs  
 
