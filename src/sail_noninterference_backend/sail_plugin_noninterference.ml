@@ -28,20 +28,45 @@ let noninterference_options =
 
 
 
-let check_variable_lattice (ni_env : ni_env) (id: id) : ni_env = (*The purpose of this function is to update our ni_env with lattice information of each var*)
+let check_variable_lattice (ni_env : ni_env) (id: id) : ni_env =
   let var_name = string_of_id id in
-  if String.starts_with ~prefix:"public_" var_name then
-    add id Public ni_env
-  else if String.starts_with ~prefix:"secret_" var_name then
-    add id Secret ni_env
-  else
-    failwith ("Variable " ^ var_name ^ " does not follow naming convention for public or secret variables")
+  match find_opt id ni_env with
+  | Some Secret ->
+      if String.starts_with ~prefix:"public_" var_name then
+        failwith ("Cannot downgrade secret variable " ^ var_name ^ " to public")
+      else
+        ni_env
+  | Some Public ->
+      if String.starts_with ~prefix:"secret_" var_name then
+        add id Secret ni_env
+      else
+        ni_env
+  | None ->
+      if String.starts_with ~prefix:"public_" var_name then
+        add id Public ni_env
+      else if String.starts_with ~prefix:"secret_" var_name then
+        add id Secret ni_env
+      else
+        failwith ("Variable " ^ var_name ^ " does not follow naming convention")
 
 let is_binop id =
   let op = string_of_id id in
   match op with
   | "+" | "-" | "*" | "/" | "&&" | "||" | "==" | "!=" | "<" | ">" | "<=" | ">=" -> true
   | _ -> false
+
+let rec infer_lattice ni_env expr =
+  match expr with
+  | E_aux (E_id id, _) -> (
+      match find_opt id ni_env with
+      | Some l -> l
+      | None -> failwith ("Unknown variable: " ^ string_of_id id)
+    )
+  | E_aux (E_lit _, _) -> Public (* or Secret, depending on your policy *)
+  | E_aux (E_app (_, args), _) ->
+      (* Conservative: if any arg is Secret, result is Secret *)
+      if List.exists (fun e -> infer_lattice ni_env e = Secret) args then Secret else Public
+  | _ -> Public (* Default/fallback, refine as needed *)
 
 let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : unit = 
   match expr with
@@ -55,6 +80,8 @@ let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : un
       the non-interference properties since what we are really interested in, is whether x or y
       are secret and whether they are assigned to a public or secret variable.
       *)
+      
+      
       
   | E_aux (E_lit lit, _) ->
     (match lit with
@@ -77,15 +104,23 @@ let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : un
     - If lexp is secret and value is public, then the assignment is fine.
     - If lexp is secret and value is secret, then the assignment is fine.
     - If lexp is public and value is secret, then this is a violation of non-interference and should result in a skip.
-    For optimization we should check value first and find out whether it is public. If it is secret, then
-    we can skip checking lexp since the assignment is fine.
     *)
-      
-      check_lexp env lexp ni_env;
-      check_expr env value ni_env;
-      (* handle assignment *)
+      (match lexp with 
+      | LE_aux (LE_id id, _) ->
+          let ni_env' = check_variable_lattice ni_env id in
+          let lhs_lattice = find id ni_env' in
+          let rhs_lattice = infer_lattice ni_env' value in
+          (match (lhs_lattice, rhs_lattice) with
+          | (Public, Secret) ->
+              failwith ("Non-interference violation: assigning secret value to public variable " ^ string_of_id id)
+          | _ ->
+              check_expr env value ni_env')
+      | LE_aux (LE_deref exp, _) -> check_expr env exp ni_env
+      | _ -> failwith "Unsupported lexp in assignment")
+
   | E_aux (E_id id, _) ->
       (*  *)
+      let ni_env' = check_variable_lattice ni_env id in
       ()
   | E_aux (E_if (cond, then_exp, else_exp), _) ->
       check_expr env cond ni_env;
@@ -93,26 +128,8 @@ let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : un
       check_expr env else_exp ni_env;
       (* handle if statement *)
   | _ -> ()
-
-and check_lexp (env : Type_check.env) (lexp : 'a lexp) (ni_env : ni_env) : unit =
-  match lexp with
-  | LE_aux (LE_id id, _) -> 
-    (*
-    In this more simplistic version of the non-interference analysis, we are not checking whether a 
-    variable is secret or public. We expect we know this from the start. Thus we use names to specify
-    whether a variable is secret or public (secret_x vs public_x). Therefore, we call a seperate function
-    every time we encounter a new variable. This can happen in an assignment, a function parameter, or
-    a let binding.
-    *)
-    ni_env' = check_variable_lattice ni_env id;
-    (*If the lexp is public we need to check the value*)
-    match find id ni_env' with
-    | Public -> ()
-    | Secret -> ()
-
-  | LE_aux (LE_deref exp, _) -> check_expr env exp ni_env
-  | LE_aux (LE_field (lexp, _), _) -> check_lexp env lexp ni_env
-  | _ -> ()
+  
+  
 
 let check_ast (env : Type_check.env) (ast : Type_check.typed_ast) (ni_env : ni_env) = 
   List.iter (fun def -> 

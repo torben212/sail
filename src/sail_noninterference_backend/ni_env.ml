@@ -20,3 +20,6 @@ let add (id: id) (lat: lattice) (env: ni_env) : ni_env =
 
 let find (id: id) (env: ni_env) : lattice =
   IdMap.find id env.lattices
+
+let find_opt (id: id) (env: ni_env) : lattice option =
+  IdMap.find_opt id env.lattices
