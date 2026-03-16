@@ -26,28 +26,71 @@ let noninterference_options =
     );
   ]
 
+
+
+let check_variable_lattice (env: Type_check.env) (id: id) : unit =
+  let var_name = string_of_id id in
+  if String.starts_with ~prefix:"public_" var_name then
+    (* variable is public *)
+    ()
+  else if String.starts_with ~prefix:"secret_" var_name then
+    (* variable is secret *)
+    ()
+  else
+    failwith ("Variable " ^ var_name ^ " does not follow naming convention for public or secret variables")
+
 let is_binop id =
   let op = string_of_id id in
   match op with
   | "+" | "-" | "*" | "/" | "&&" | "||" | "==" | "!=" | "<" | ">" | "<=" | ">=" -> true
   | _ -> false
 
-let rec check_expr (env : Type_check.env) (expr) : unit = 
+let rec check_expr (env : Type_check.env) (expr : 'a exp) : unit = 
   match expr with
   | E_aux (E_app (id, [e1; e2]), _) when is_binop id ->
       check_expr env e1;
       check_expr env e2;
-      failwith "Binary operator handling not implemented yet"
-      (* handle the operator id here *)
+      (*let op = string_of_id id in
+      match op with 
+      (*
+      Any operator is treated the same in non-interference analysis since it does not matter
+      what the operator is. If we have an expression like "x + y", the operator doesn't affect
+      the non-interference properties since what we are really interested in, is whether x or y
+      are secret and whether they are assigned to a public or secret variable.
+      *)
+      | "+" | "-" | "*" | "/" -> () 
+      | "&&" | "||" -> ()
+      | "==" | "!=" | "<" | ">" | "<=" | ">=" -> ()
+      | _ -> failwith ("Unsupported binary operator: " ^ op)*)
   | E_aux (E_lit lit, _) ->
-      (* handle literal *)
-      failwith "Literal handling not implemented yet"
+    (match lit with
+    | L_aux (L_num _, _) -> ()
+    | L_aux (L_true, _) | L_aux (L_false, _) -> ()
+    | L_aux (L_real _, _) -> ()
+    | L_aux (L_string _, _) -> ()
+    | _ -> failwith "Unsupported literal type")
+    (* 
+    We match literals here to limit what types of literals we currently support in our non-interference
+    analysis. This is more of a safety measure to ensure our analysis doesn't fail because of an 
+    unsupported literal type.
+    *)
   | E_aux (E_assign (lexp, value), _) ->
+    (*
+    For assignments, we have different cases to consider for the left hand side. Thus we refer to a 
+    helper function check_lexp to handle the different cases. These will matter for our non-interference
+    analysis. We allow an assignment to go through in three out of four cases.
+    - If lexp and value are both public, then the assignment is fine.
+    - If lexp is secret and value is public, then the assignment is fine.
+    - If lexp is secret and value is secret, then the assignment is fine.
+    - If lexp is public and value is secret, then this is a violation of non-interference and should result in a skip.
+    For optimization we should check lexp first and find out whether it is public. If it is secret, then
+    we can skip checking value since the assignment is fine.
+    *)
       check_lexp env lexp;
       check_expr env value;
       (* handle assignment *)
   | E_aux (E_id id, _) ->
-      (* handle variable *)
+      (*  *)
       ()
   | E_aux (E_if (cond, then_exp, else_exp), _) ->
       check_expr env cond;
@@ -56,9 +99,18 @@ let rec check_expr (env : Type_check.env) (expr) : unit =
       (* handle if statement *)
   | _ -> ()
 
-and check_lexp (env : Type_check.env) (lexp) : unit =
+and check_lexp (env : Type_check.env) (lexp : 'a lexp) : unit =
   match lexp with
-  | LE_aux (LE_id id, _) -> ()
+  | LE_aux (LE_id id, _) -> 
+    (*
+    In this more simplistic version of the non-interference analysis, we are not checking whether a 
+    variable is secret or public. We expect we know this from the start. Thus we use names to specify
+    whether a variable is secret or public (secret_x vs public_x). Therefore, we call a seperate function
+    every time we encounter a new variable. This can happen in an assignment, a function parameter, or
+    a let binding.
+    *)
+    (*check_variable_lattice env id;*)
+    ()
   | LE_aux (LE_deref exp, _) -> check_expr env exp
   | LE_aux (LE_field (lexp, _), _) -> check_lexp env lexp
   | _ -> ()
