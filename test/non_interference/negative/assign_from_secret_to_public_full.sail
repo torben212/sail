@@ -4,8 +4,7 @@ $include <prelude.sail>
 val main : unit -> int
 
 function main () = {
-  let secret_x : int = 0;
-  let secret_y : int = 5;
-  let public_z : int = secret_x + secret_y;
+  let secret_y : int = 0;
+  let public_z : int = secret_y;
   return public_z;
 }
