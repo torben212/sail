@@ -11,7 +11,6 @@ open Ni_env
 
 module Callgraph_commands = Callgraph_commands
 
-(* Options for noninterference plugin *)
 let opt_output_dir = ref (Some ".")
 let opt_verbose = ref false
 let noninterference_options =
@@ -143,9 +142,17 @@ let check_ast (env : Type_check.env) (ast : Type_check.typed_ast) (ni_env : ni_e
             funcls
     | _ -> ()
   ) ast.defs  
+  let defs_without_includes defs =
+    let rec go depth acc = function
+      | DEF_aux (DEF_pragma ("include_start", _), _) :: rest -> go (depth + 1) acc rest
+      | DEF_aux (DEF_pragma ("include_end", _), _) :: rest -> go (max 0 (depth - 1)) acc rest
+      | def :: rest when depth = 0 -> go depth (def :: acc) rest
+      | _ :: rest -> go depth acc rest
+      | [] -> List.rev acc
+    in
+    go 0 [] defs
 
 let noninterference_target out_file { ast; effect_info; env; _ } =
-  (* Handle optional output file *)
   let output_filename = match out_file with 
     | Some f -> f ^ ".noninterference" 
     | None -> "noninterference_analysis" 
@@ -153,17 +160,18 @@ let noninterference_target out_file { ast; effect_info; env; _ } =
   let open Ast in
   let open Ast_defs in
   
-  (* Now you have access to:
-     - ast: the AST of the program
-     - effect_info: effect information
-     - env: the type environment
-     - output_filename: output file path *)
-  
+
   if !opt_verbose then (
     Printf.printf "Noninterference analysis starting...\n";
     Printf.printf "Output file: %s\n" output_filename;
     Printf.printf "AST has %d definitions\n" (List.length ast.defs);
     Printf.printf "\nAST definitions:\n";
+    let filename = Option.value ~default:"outnoninterference.sail" None in
+    let chan = open_out filename in
+    let stripped = Type_check.strip_ast ast in
+    let local_only_ast = { stripped with defs = defs_without_includes stripped.defs } in
+    Pretty_print_sail.output_ast chan local_only_ast;
+    close_out chan;
     flush_all ()
   );
   

@@ -8,6 +8,7 @@
 
 (executable
  (name sail_plugin_noninterference)
+ (modules sail_plugin_noninterference ni_env)
  (modes
   (native plugin)
   (byte plugin))
