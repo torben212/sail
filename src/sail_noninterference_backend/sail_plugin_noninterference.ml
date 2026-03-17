@@ -25,79 +25,64 @@ let noninterference_options =
       "enable verbose output for noninterference analysis" 
     );
   ]
-let string_of_lattice = function
+let string_of_lattice = function (*Simple conversion function used for debugging*)
   | Secret -> "Secret"
   | Public -> "Public"
 
 
-let check_variable_lattice (ni_env : ni_env) (id: id) : ni_env =
+let check_variable_lattice (ni_env : ni_env) (id: id) : ni_env = (*This is the function to check the lattice of a var based on its name. We update and return env*)
   let var_name = string_of_id id in
-  Printf.printf "Checking variable %s in non-interference environment\n" var_name;
-  match find_opt (string_of_id id) ni_env with
+  (*Printf.printf "Checking variable %s in non-interference environment\n" var_name;*)
+  match find_opt (string_of_id id) ni_env with (*We start by matching on the variable's lattice*)
   | Some Secret ->
-      if String.starts_with ~prefix:"public_" var_name then
+      if String.starts_with ~prefix:"public_" var_name then (*In this case we check if the variable is being downgraded which we don't allow*)
         failwith ("Cannot downgrade secret variable " ^ var_name ^ " to public")
       else
         ni_env
   | Some Public ->
-      if String.starts_with ~prefix:"secret_" var_name then
+      if String.starts_with ~prefix:"secret_" var_name then (*In this case we check if the variable is being upgraded which we do allow*)
         add (string_of_id id) Secret ni_env
       else
         ni_env
-  | None ->
+  | None -> (*The two previous cases should return ni_env all the time since the name changing would mean the id changes but we keep it for completeness*)
       if String.starts_with ~prefix:"public_" var_name then (
         Printf.printf "Adding variable %s to non-interference environment as Public\n" var_name;
         add (string_of_id id) Public ni_env)
       else if String.starts_with ~prefix:"secret_" var_name then (
         Printf.printf "Adding variable %s to non-interference environment as Secret\n" var_name;
         add (string_of_id id) Secret ni_env
-        
       )
-        
       else
         failwith ("Variable " ^ var_name ^ " does not have a valid prefix (public_ or secret_)")
 
-let is_binop id =
+let is_binop id = (*Helper function to use in identifying a binary operation*)
   let op = string_of_id id in
   match op with
   | "+" | "-" | "*" | "/" | "&&" | "||" | "==" | "!=" | "<" | ">" | "<=" | ">=" -> true
   | _ -> false
 
-let rec infer_lattice (ni_env : ni_env) (expr : 'a exp) : lattice =
+  (*Infer_lattice is linked to check_expr. It is to be used when inferring lattices. That is we expect the lattices we infer to already be in the environment.
+  This is really only relevant cases that can involve variables. As of such literals are handled as an edge case*)
+let rec infer_lattice (ni_env : ni_env) (expr : 'a exp) : lattice = 
   match expr with
-  | E_aux (E_id id, _) -> (
-    Printf.printf "Inferring lattice for variable %s\n" (string_of_id id);
+  | E_aux (E_lit _, _) -> Public (*Literal case*)
+  | E_aux (E_app (_, args), _) -> (*BinOp case; The operator doesn't affect the non-interference properties*)
+    if List.exists (fun e -> infer_lattice ni_env e = Secret) args then Secret else Public (* We run through the args and infer lattices. If one is secret, the entirety is treated as being secret*)
+  | E_aux (E_id id, _) -> ( (*Variable case*)
+    (*Printf.printf "Inferring lattice for variable %s\n" (string_of_id id);*)
       find (string_of_id id) ni_env
     )
-  | E_aux (E_lit _, _) -> Public
-  | E_aux (E_app (_, args), _) ->
-      if List.exists (fun e -> infer_lattice ni_env e = Secret) args then Secret else Public
-  | E_aux (E_let (P_aux (P_typ (_, pat), _), exp, body), _) ->
-    (* Handle typed pattern *)
-    (match pat with
-     | P_aux (P_id id, _) ->
-         let ni_env' = check_variable_lattice ni_env id in
-         infer_lattice ni_env' body
-     | _ -> Public)
-  | _ -> failwith "not supported"
+  | E_aux (E_assign (lexp, value), _) -> (*Assign case*)
+    failwith "Not implemented yet assign"
+  | E_aux (E_let (P_aux (P_typ (_, pat), _), exp, body), _) -> (*Let decl case with typed pattern*)
+    (* Handle typed pattern (we might need another case)*)
+    infer_lattice ni_env body
+  | _ -> failwith "not supported in inferrence"
 
+  (*The main function check_expr serves to run through the ast tree and update our environment accordingly as well as check for non-interference violations*)
 let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : unit = 
-  Printf.printf "Checking expression for non-interference: %s\n" (string_of_exp expr);
-
+  (*Printf.printf "Checking expression for non-interference: %s\n" (string_of_exp expr);*)
   match expr with
-  | E_aux (E_app (id, [e1; e2]), _) when is_binop id ->
-      check_expr env e1 ni_env;
-      check_expr env e2 ni_env;
-      Printf.printf "Checking binop expression for non-interference\n";
-      (*
-      Any operator is treated the same in non-interference analysis since it does not matter
-      what the operator is. If we have an expression like "x + y", the operator doesn't affect
-      the non-interference properties since what we are really interested in, is whether x or y
-      are secret and whether they are assigned to a public or secret variable.
-      *)
-      
-      
-      
   | E_aux (E_lit lit, _) ->
     (match lit with
     | L_aux (L_unit, _) -> ()
@@ -111,6 +96,19 @@ let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : un
     analysis. This is more of a safety measure to ensure our analysis doesn't fail because of an 
     unsupported literal type.
     *)
+    
+  | E_aux (E_app (id, [e1; e2]), _) when is_binop id ->
+      check_expr env e1 ni_env;
+      check_expr env e2 ni_env;
+      Printf.printf "Checking binop expression for non-interference\n";
+      (*
+      Any operator is treated the same in non-interference analysis since it does not matter
+      what the operator is. If we have an expression like "x + y", the operator doesn't affect
+      the non-interference properties since what we are really interested in, is whether x or y
+      are secret and whether they are assigned to a public or secret variable.
+      *)
+      (*Need implementation*)
+
   | E_aux (E_assign (lexp, value), _) -> (*Assign expressions*)
     (*
     For assignments, we have different cases to consider for the left hand side. Thus we refer to a 
@@ -123,9 +121,9 @@ let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : un
     *)
       (match lexp with 
       | LE_aux (LE_id id, _) ->
-          let ni_env' = check_variable_lattice ni_env id in
-          let lhs_lattice = find (string_of_id id) ni_env' in
-          let rhs_lattice = infer_lattice ni_env value in
+          let ni_env' = check_variable_lattice ni_env id in (*Update ni_env*)
+          let lhs_lattice = find (string_of_id id) ni_env' in (*find the lattice for the left-hand side*)
+          let rhs_lattice = infer_lattice ni_env value in (*infer the lattice for the right-hand side*)
           (match (lhs_lattice, rhs_lattice) with
           | (Public, Secret) ->
               failwith ("Non-interference violation: assigning secret value to public variable " ^ string_of_id id)
@@ -133,53 +131,53 @@ let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : un
               check_expr env value ni_env')
       | LE_aux (LE_deref exp, _) -> check_expr env exp ni_env
       | _ -> failwith "Unsupported lexp in assignment")
+
   | E_aux (E_let (pat, exp, body), _) -> (*Let declarations*)
-    Printf.printf "Checking let expression for non-interference\n";
     (match pat with
     | P_aux (P_id id, _) ->
-      check_expr env exp ni_env;
       let ni_env' = check_variable_lattice ni_env id in
-      check_expr env body ni_env';
-      Printf.printf "Checking env for newly added variable %s: %s\n" (string_of_id id) (string_of_lattice (find (string_of_id id) ni_env'));
+      (*Printf.printf "Checking env for newly added variable %s: %s\n" (string_of_id id) (string_of_lattice (find (string_of_id id) ni_env'));*)
       let lhs_lattice = find (string_of_id id) ni_env' in
+      check_expr env exp ni_env';
       let rhs_lattice = infer_lattice ni_env exp in
-      Printf.printf "1";
       (match (lhs_lattice, rhs_lattice) with
       | (Public, Secret) ->
           failwith ("Non-interference violation: assigning secret value to public variable " ^ string_of_id id)
       | _ ->
       check_expr env body ni_env')
-    | P_aux (P_typ (_, pat), _) ->
-      Printf.printf "Checking let expression with type annotation for non-interference\n";
+    | P_aux (P_typ (_, pat), _) -> (*Let decl with typed annotation*)
       (match pat with
       | P_aux (P_id id, _) ->
           let ni_env' = check_variable_lattice ni_env id in
-          Printf.printf "Checking env for newly added variable %s: %s\n" (string_of_id id) (string_of_lattice (find (string_of_id id) ni_env'));
+          (*Printf.printf "Checking env for newly added variable %s: %s\n" (string_of_id id) (string_of_lattice (find (string_of_id id) ni_env'));*)
           let lhs_lattice = find (string_of_id id) ni_env' in
-          Printf.printf "found lhs lattice \n";
+          check_expr env exp ni_env';
           let rhs_lattice = infer_lattice ni_env' exp in
-          Printf.printf "2";
           (match (lhs_lattice, rhs_lattice) with
           | (Public, Secret) ->
               failwith ("Non-interference violation: assigning secret value to public variable " ^ string_of_id id)
           | _ ->
           check_expr env body ni_env') (*The body is the next expression*)
-      | _ -> failwith "Unsupported pattern in let expression2")
-    | _ -> failwith "Unsupported pattern in let expression")
+      | _ -> failwith "Unsupported pattern in typed let expression")
+    | _ -> failwith "Unsupported pattern in let expression match")
+
   | E_aux (E_block exprs, _) -> (*Block expression*)
-    Printf.printf "Checking block expression for non-interference\n";
     List.iter (fun e -> check_expr env e ni_env) exprs
+
   | E_aux (E_id id, _) -> (*Var expression*)
-    Printf.printf "Checking variable expression for non-interference: %s\n" (string_of_id id);
-    let ni_env' = check_variable_lattice ni_env id in
+    let ni_env' = check_variable_lattice ni_env id in (*Probably shouldn't have this since a var has to be declared before where 
+    we probably added it to our environment. Thus this is kind of redundant.*)
     ()
-  | E_aux (E_if (cond, then_exp, else_exp), _) ->
+  | E_aux (E_if (cond, then_exp, else_exp), _) -> (*If statement*)
+  (*In an if statement we check the condition first. If the condition has anything to do with a 
+    secret variable, we have to make sure that there are no assigments to public variables in 
+  branches.*)
       check_expr env cond ni_env;
       check_expr env then_exp ni_env;
       check_expr env else_exp ni_env;
-      (* handle if statement *)
+
   | E_aux (E_return e, _) -> (*Return stmt*)
-    Printf.printf "Checking return expression for non-interference\n";
+    Printf.printf "Reached Return expression \n";
     check_expr env e ni_env
   | _ -> ()  
   
@@ -198,6 +196,7 @@ let check_ast (env : Type_check.env) (ast : Type_check.typed_ast) (ni_env : ni_e
           funcls 
     | _ -> ()
   ) ast.defs  
+
 let defs_without_includes defs =
     let rec go depth acc = function
       | DEF_aux (DEF_pragma ("include_start", _), _) :: rest -> go (depth + 1) acc rest

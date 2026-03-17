@@ -5,6 +5,8 @@ val main : unit -> int
 
 function main () = {
   let secret_y : int = 0;
-  let public_z : int = secret_y;
+  let secret_x : int = 5;
+  let public_z : int = let public_a : int = 10 in 
+  public_a + secret_x + secret_y; 
   return public_z;
 }
