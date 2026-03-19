@@ -70,14 +70,41 @@ let rec infer_lattice (ni_env : ni_env) (expr : 'a exp) : lattice =
     if List.exists (fun e -> infer_lattice ni_env e = Secret) args then Secret else Public (* We run through the args and infer lattices. If one is secret, the entirety is treated as being secret*)
   | E_aux (E_id id, _) -> ( (*Variable case*)
     (*Printf.printf "Inferring lattice for variable %s\n" (string_of_id id);*)
-      find (string_of_id id) ni_env
+      match find_opt (string_of_id id) ni_env with
+      | Some lattice -> lattice
+      | None -> failwith ("Cannot infer lattice for unknown variable " ^ string_of_id id)
     )
   | E_aux (E_assign (lexp, value), _) -> (*Assign case*)
     failwith "Not implemented yet assign"
-  | E_aux (E_let (P_aux (P_typ (_, pat), _), exp, body), _) -> (*Let decl case with typed pattern*)
-    (* Handle typed pattern (we might need another case)*)
-    infer_lattice ni_env body
-  | _ -> failwith "not supported in inferrence"
+  | E_aux (E_let (pat, exp, body), _) -> (*Let decl case*)
+    (match pat with
+    | P_aux (P_id id, _) ->
+      (*we add the variable to the non-interference environment*)
+        let ni_env' = check_variable_lattice ni_env id in
+        let _ = infer_lattice ni_env' exp in
+        infer_lattice ni_env' body
+    | P_aux (P_typ (_, P_aux (P_id id, _)), _) ->
+        (*we add the variable to the non-interference environment*)
+        let ni_env' = check_variable_lattice ni_env id in
+        let _ = infer_lattice ni_env' exp in
+        infer_lattice ni_env' body
+    | _ -> failwith "Unsupported pattern in let expression for lattice inference")
+  | _ -> failwith "not supported in inference"
+
+let rec check_assignement (ni_env : ni_env) (lhs_lattice : lattice) (rhs_lattice : lattice) (id : string) : unit = 
+  match check_security_level ni_env with
+          | Secret -> (*If we are in a secret context we allow no assignements to public variables, but we allow all other*)
+              (match (lhs_lattice, rhs_lattice) with
+              | (Public, _) ->
+                  failwith ("Non-interference violation: assigning value to public variable " ^ id ^ " in secret context")
+              | _ -> () )
+          | Public ->
+          (match (lhs_lattice, rhs_lattice) with
+          | (Public, Secret) ->
+              failwith ("Non-interference violation: assigning secret value to public variable " ^ id ^ "in public context")
+          | _ -> () )
+
+
 
   (*The main function check_expr serves to run through the ast tree and update our environment accordingly as well as check for non-interference violations*)
 let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : unit = 
@@ -124,11 +151,8 @@ let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : un
           let ni_env' = check_variable_lattice ni_env id in (*Update ni_env*)
           let lhs_lattice = find (string_of_id id) ni_env' in (*find the lattice for the left-hand side*)
           let rhs_lattice = infer_lattice ni_env value in (*infer the lattice for the right-hand side*)
-          (match (lhs_lattice, rhs_lattice) with
-          | (Public, Secret) ->
-              failwith ("Non-interference violation: assigning secret value to public variable " ^ string_of_id id)
-          | _ ->
-              check_expr env value ni_env')
+          check_assignement ni_env lhs_lattice rhs_lattice (string_of_id id);
+          check_expr env value ni_env'
       | LE_aux (LE_deref exp, _) -> check_expr env exp ni_env
       | _ -> failwith "Unsupported lexp in assignment")
 
@@ -136,28 +160,22 @@ let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : un
     (match pat with
     | P_aux (P_id id, _) ->
       let ni_env' = check_variable_lattice ni_env id in
-      (*Printf.printf "Checking env for newly added variable %s: %s\n" (string_of_id id) (string_of_lattice (find (string_of_id id) ni_env'));*)
+      Printf.printf "Checking env for newly added variable %s: %s\n" (string_of_id id) (string_of_lattice (find (string_of_id id) ni_env'));
       let lhs_lattice = find (string_of_id id) ni_env' in
       check_expr env exp ni_env';
-      let rhs_lattice = infer_lattice ni_env exp in
-      (match (lhs_lattice, rhs_lattice) with
-      | (Public, Secret) ->
-          failwith ("Non-interference violation: assigning secret value to public variable " ^ string_of_id id)
-      | _ ->
-      check_expr env body ni_env')
+      let rhs_lattice = infer_lattice ni_env' exp in
+      check_assignement ni_env lhs_lattice rhs_lattice (string_of_id id);
+      check_expr env body ni_env'
     | P_aux (P_typ (_, pat), _) -> (*Let decl with typed annotation*)
       (match pat with
       | P_aux (P_id id, _) ->
           let ni_env' = check_variable_lattice ni_env id in
-          (*Printf.printf "Checking env for newly added variable %s: %s\n" (string_of_id id) (string_of_lattice (find (string_of_id id) ni_env'));*)
+          Printf.printf "Checking env for newly added variable %s: %s\n" (string_of_id id) (string_of_lattice (find (string_of_id id) ni_env'));
           let lhs_lattice = find (string_of_id id) ni_env' in
           check_expr env exp ni_env';
           let rhs_lattice = infer_lattice ni_env' exp in
-          (match (lhs_lattice, rhs_lattice) with
-          | (Public, Secret) ->
-              failwith ("Non-interference violation: assigning secret value to public variable " ^ string_of_id id)
-          | _ ->
-          check_expr env body ni_env') (*The body is the next expression*)
+          check_assignement ni_env lhs_lattice rhs_lattice (string_of_id id);
+          check_expr env body ni_env' (*The body is the next expression*)
       | _ -> failwith "Unsupported pattern in typed let expression")
     | _ -> failwith "Unsupported pattern in let expression match")
 
@@ -173,8 +191,16 @@ let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : un
     secret variable, we have to make sure that there are no assigments to public variables in 
   branches.*)
       check_expr env cond ni_env;
-      check_expr env then_exp ni_env;
-      check_expr env else_exp ni_env;
+      (match infer_lattice ni_env cond with
+      | Secret -> 
+          Printf.printf "Condition is secret, checking branches with elevated security level\n";
+          let ni_env' = set_security_level ni_env Secret in 
+          check_expr env then_exp ni_env';
+          check_expr env else_exp ni_env';
+      | Public -> 
+          Printf.printf "Condition is public, checking branches with public security level\n";
+          check_expr env then_exp ni_env;
+          check_expr env else_exp ni_env;)
 
   | E_aux (E_return e, _) -> (*Return stmt*)
     Printf.printf "Reached Return expression \n";
