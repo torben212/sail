@@ -33,17 +33,15 @@ val main : unit -> int
 
 $[complete]
 function main () = {
-    let secret_x : int = 10;
-    let public_z : int = 1;
-    if $[overloaded { "name" = ">", "is_infix" = true }] gt_int(secret_x, 10) then {
-        if $[overloaded { "name" = ">", "is_infix" = true }] gt_int(public_z, 1) then {
-            let secret_y = secret_x;
+    let secret_x : int = 0;
+    let public_a : int = 0;
+    while $[overloaded { "name" = ">", "is_infix" = true }] gt_int(secret_x, 1) do {
+        while $[overloaded { "name" = ">", "is_infix" = true }] gt_int(public_a, 1) do {
+            let secret_y : int = secret_x;
             ()
-        };
-        ()
+        }
     };
-    let public_g = 1;
-    return(secret_x)
+    return(1)
 }
 
 $[global]

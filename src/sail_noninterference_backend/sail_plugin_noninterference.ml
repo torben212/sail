@@ -201,7 +201,17 @@ let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : un
           Printf.printf "Condition is public, checking branches with public security level\n";
           check_expr env then_exp ni_env;
           check_expr env else_exp ni_env;)
-
+          
+  | E_aux (E_loop (_,  _, cond, body), _) -> (*Loop expression*)
+        check_expr env cond ni_env;
+        (match infer_lattice ni_env cond with
+        | Secret -> 
+            Printf.printf "Loop condition is secret, checking body with elevated security level\n";
+            let ni_env' = set_security_level ni_env Secret in
+            check_expr env body ni_env';
+        | Public -> 
+            Printf.printf "Loop condition is public, checking body with public security level\n";
+            check_expr env body ni_env; )
   | E_aux (E_return e, _) -> (*Return stmt*)
     Printf.printf "Reached Return expression \n";
     check_expr env e ni_env
