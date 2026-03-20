@@ -91,6 +91,8 @@ let rec infer_lattice (ni_env : ni_env) (expr : 'a exp) : lattice =
     | _ -> failwith "Unsupported pattern in let expression for lattice inference")
   | _ -> failwith "not supported in inference"
 
+(*This function exists to check the security level when assigning a variable such that assignments in loop contexts work
+    with non-interference*)  
 let rec check_assignement (ni_env : ni_env) (lhs_lattice : lattice) (rhs_lattice : lattice) (id : string) : unit = 
   match check_security_level ni_env with
           | Secret -> (*If we are in a secret context we allow no assignements to public variables, but we allow all other*)
