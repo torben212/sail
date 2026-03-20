@@ -8,8 +8,8 @@ function main () = {
   let public_a : int = 0;
     while (secret_x > 1 ) {
         while (public_a > 1) {
-            let secret_y : int = secret_x;
+            let public_b : int = public_a;
         };
     };
-  return 1;
+  return public_a;
 }

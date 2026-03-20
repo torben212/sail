@@ -29,19 +29,21 @@ val undefined_unit = monadic {_: "undefined_unit"}: unit -> unit
 
 default Order dec
 
+val foo : int -> int
+
+$[complete]
+function foo public_a = {
+    let public_b : int = public_a;
+    return(public_b)
+}
+
 val main : unit -> int
 
 $[complete]
 function main () = {
-    let secret_x : int = 0;
-    let public_a : int = 0;
-    while $[overloaded { "name" = ">", "is_infix" = true }] gt_int(secret_x, 1) do {
-        while $[overloaded { "name" = ">", "is_infix" = true }] gt_int(public_a, 1) do {
-            let secret_y : int = secret_x;
-            ()
-        }
-    };
-    return(1)
+    let public_c = 1;
+    let public_d = foo(public_c);
+    return(public_d)
 }
 
 $[global]

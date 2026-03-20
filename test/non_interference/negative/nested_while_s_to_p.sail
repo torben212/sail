@@ -11,5 +11,5 @@ function main () = {
             let public_b : int = secret_x;
         };
     };
-  return public_b;
+  return public_a;
 }
