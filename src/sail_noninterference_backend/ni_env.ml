@@ -9,18 +9,20 @@ module IdMap = Map.Make(struct type t = string let compare = compare end)
 
 type ni_env = {
   lattices : lattice IdMap.t;
+  functions : (lattice list * lattice list) IdMap.t;
   depth : int;
   security_level : lattice;
 }
 
 let empty_ni_env = {
   lattices = IdMap.empty;
+  functions = IdMap.empty;
   depth = 0;
   security_level = Public;
 }
 
 let add (id: string) (lat: lattice) (env: ni_env) : ni_env =
-  { lattices = IdMap.add id lat env.lattices; depth = env.depth; security_level = env.security_level }
+  { lattices = IdMap.add id lat env.lattices; functions = env.functions; depth = env.depth; security_level = env.security_level }
 
 let find (id: string) (env: ni_env) : lattice =
   IdMap.find id env.lattices
@@ -41,3 +43,9 @@ let decrease_depth (env : ni_env) : ni_env =
   {env with depth = env.depth - 1}
 let get_depth (env : ni_env) : int =
   env.depth
+
+let add_function (id: string) (input_lat : lattice list) (output_lat : lattice list) (env: ni_env) : ni_env =
+  {env with functions = IdMap.add id (input_lat, output_lat) env.functions}
+
+let find_function (id: string) (env: ni_env) : (lattice list * lattice list) =
+  IdMap.find id env.functions

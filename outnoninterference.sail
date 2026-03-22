@@ -29,10 +29,10 @@ val undefined_unit = monadic {_: "undefined_unit"}: unit -> unit
 
 default Order dec
 
-val foo : int -> int
+val foo : (int, int) -> int
 
 $[complete]
-function foo public_a = {
+function foo (public_a, public_c) = {
     let public_b : int = public_a;
     return(public_b)
 }
@@ -42,7 +42,7 @@ val main : unit -> int
 $[complete]
 function main () = {
     let public_c = 1;
-    let public_d = foo(public_c);
+    let public_d = foo(public_c, public_c);
     return(public_d)
 }
 
