@@ -151,8 +151,9 @@ let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : un
       the non-interference properties since what we are really interested in, is whether x or y
       are secret and whether they are assigned to a public or secret variable.
       *)
-      (*Need implementation*)
-  | E_aux (E_app (id, args), _) -> (*function application*)
+  | E_aux (E_app (id, args), _) -> (*function call*)
+  (*For function calls we need to check the lattices of the arguments and the return value. Right
+  now we only compare the inferred arg lattices with the expected input lattices and treat them accordingly*)
       Printf.printf "Checking function application for non-interference function %s\n" (string_of_id id);
       let function_lattices = find_function (string_of_id id) ni_env in
       let input_lattices, output_lattices = function_lattices in
@@ -255,18 +256,27 @@ let rec inputs_to_list (pat : 'a pat) (ni_env : ni_env) : lattice list =
    match pat with
     | P_aux (P_id id, _) -> convert_string_to_lattice (string_of_id id) :: []
     | P_aux (P_typ (_, pat), _) -> inputs_to_list pat ni_env
-    | P_aux (P_tuple pats, _) -> List.fold_left (fun acc p -> inputs_to_list p ni_env @ acc) [] pats
-    | _ -> Printf.printf("Unsupported input parameter for function inn add input to env: %s") (string_of_pat pat);
+    | P_aux (P_tuple pats, _) -> List.fold_left (fun acc p -> acc @ inputs_to_list p ni_env) [] pats
+    | P_aux (P_var (pat, _), _) -> inputs_to_list pat ni_env
+    | P_aux (P_app (_, pats), _) -> List.fold_left (fun acc p -> acc @ inputs_to_list p ni_env) [] pats
+    | P_aux (P_tuple [], _) -> []
+    | P_aux (P_list pats, _) -> List.fold_left (fun acc p -> acc @ inputs_to_list p ni_env) [] pats
+    | _ -> Printf.printf("Unsupported input parameter for function in inputs to list: %s") (string_of_pat pat);
             []
 
 let rec add_input_to_env (pat : 'a pat) (ni_env : ni_env) : ni_env =
-   match pat with
-    | P_aux (P_id id, _) -> Ni_env.add (string_of_id id) (convert_string_to_lattice (string_of_id id)) ni_env
+   let ni_env' = (match pat with 
+    | P_aux (P_id id, _) -> check_variable_lattice ni_env id
     | P_aux (P_typ (_, pat), _) -> add_input_to_env pat ni_env
+    | P_aux (P_var (pat, _), _) -> add_input_to_env pat ni_env
+    | P_aux (P_app (_, pats), _) -> List.fold_left (fun acc p -> add_input_to_env p acc) ni_env pats
+    | P_aux (P_tuple [], _) -> ni_env
     | P_aux (P_tuple pats, _) -> List.fold_left (fun acc p -> add_input_to_env p acc) ni_env pats
-    | _ -> Printf.printf("Unsupported input parameter for function inn add input to env: %s") (string_of_pat pat);
-            ni_env
+    | P_aux (P_list pats, _) -> List.fold_left (fun acc p -> add_input_to_env p acc) ni_env pats
+    | _ -> failwith ("Unsupported input parameter for function in add input to env: " )) in
+  ni_env'
 
+  
 let rec outputs_to_list (expr : 'a exp) (ni_env : ni_env) : lattice list =
   let step recurse (acc : lattice list) ((E_aux (e_aux, _) as e) : 'a exp) : lattice list * 'a exp =
     match e_aux with
@@ -275,11 +285,16 @@ let rec outputs_to_list (expr : 'a exp) (ni_env : ni_env) : lattice list =
         | E_aux (E_lit _, _) -> Public :: acc, e (*Literal case*)
         | E_aux (E_id id, _) -> ( (*Variable case*)
           (*Printf.printf "Inferring lattice for variable %s\n" (string_of_id id);*)
-            match find_opt (string_of_id id) ni_env with
+          (*  match find_opt (string_of_id id) ni_env with
             | Some lattice -> lattice :: acc, e
             | None -> failwith ("Cannot infer lattice for unknown variable in outputs to list" ^ string_of_id id)
           )
-          | _ -> failwith "Unsupported pattern in let expression for outputs to list")
+          | _ -> failwith "Unsupported pattern in let expression for outputs to list")*)
+          let ni_env' = check_variable_lattice ni_env id in
+          let lattice = find (string_of_id id) ni_env' in
+          (match lattice with
+          | lat -> lattice :: acc, e))
+        | _ -> failwith "Unsupported return expression type in outputs to list")
     | _ ->
         recurse acc e
   in
@@ -292,10 +307,11 @@ let add_functions_to_env (ast : Type_check.typed_ast) (ni_env : ni_env) : ni_env
       match def with
       | DEF_aux (DEF_fundef (FD_aux (FD_function (_, _, funcls), _)), _) -> 
         List.fold_left (fun env (FCL_aux (FCL_funcl (id, pexp), _)) ->
-          if string_of_id id = "main" || string_of_id id = "foo" then (
+          if string_of_id id = "foo" then (
             Printf.printf "Adding function %s to non-inteference environment\n" (string_of_id id);
             match pexp with
             |Pat_aux (Pat_exp (input, body), _) ->
+              (*Vi burde lave et match case her for at sikre os at der faktisk er inputs*)
               let input_lattice_list = inputs_to_list input ni_env in
               let output_lattice_list = outputs_to_list body ni_env in
               let updated_env = add_function (string_of_id id) input_lattice_list output_lattice_list env in
