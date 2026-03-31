@@ -32,9 +32,10 @@ default Order dec
 val foo : (int, int) -> int
 
 $[complete]
-function foo (public_a, public_c) = {
-    let public_b : int = public_a;
-    return(public_b)
+function foo (public_a, public_b) = {
+    let public_c : int = $[overloaded { "name" = "+", "is_infix" = true }] add_atom(public_a, public_b);
+    let secret_b : int = public_a;
+    return(secret_b)
 }
 
 val main : unit -> int
@@ -42,8 +43,8 @@ val main : unit -> int
 $[complete]
 function main () = {
     let public_c = 1;
-    let public_d = foo(public_c, public_c);
-    return(public_d)
+    let secret_d = foo(public_c, public_c);
+    return(secret_d)
 }
 
 $[global]

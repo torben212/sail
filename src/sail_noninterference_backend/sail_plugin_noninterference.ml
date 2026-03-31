@@ -73,10 +73,12 @@ let is_binop id = (*Helper function to use in identifying a binary operation*)
   let op = string_of_id id in
   Printf.printf "Checking if operator %s is a binary operator\n" op;
   match op with
-  | "+" | "-" | "*" | "/" | "&&" | "||" | "==" | "!=" | "<" | ">" | "<=" | ">=" -> true
+  | "+" | "-" | "*" | "/" | "&&" | "||" | "==" | "!=" | "<" | ">" | "<=" | ">=" | "add_atom"
+  | "sub_atom" | "mult_atom" | "gt_int" | "lt_int" | "lteq_int" | "gteq_int" | "eq_int" | "neq_int"
+  | "eq_bool" | "neq_bool" -> true
   | _ -> false
 
-  (*Infer_lattice is linked to check_expr. It is to be used when inferring lattices. That is we expect the lattices we infer to already be in the environment.
+  (*Infer_lattice is linked to check_expr. It is to be used when inferring lat tices. That is we expect the lattices we infer to already be in the environment.
   This is really only relevant cases that can involve variables. As of such literals are handled as an edge case*)
 let rec infer_lattice (ni_env : ni_env) (expr : 'a exp) : lattice = 
   match expr with
@@ -273,7 +275,10 @@ let rec add_input_to_env (pat : 'a pat) (ni_env : ni_env) : ni_env =
     | P_aux (P_tuple [], _) -> ni_env
     | P_aux (P_tuple pats, _) -> List.fold_left (fun acc p -> add_input_to_env p acc) ni_env pats
     | P_aux (P_list pats, _) -> List.fold_left (fun acc p -> add_input_to_env p acc) ni_env pats
-    | _ -> failwith ("Unsupported input parameter for function in add input to env: " )) in
+    | _ -> 
+      match string_of_pat pat with
+      | "()" -> ni_env
+      | _ -> failwith (Printf.sprintf "Unsupported input parameter for function in add input to env: %s" (string_of_pat pat))) in
   ni_env'
 
   
