@@ -4,11 +4,13 @@ open Ast_util
 open Ast_compare
 
 type lattice = Public | Secret
+type mutability = Mutable | Fragile
 
 module IdMap = Map.Make(struct type t = string let compare = compare end)
 
 type ni_env = {
   lattices : lattice IdMap.t;
+  mutability : mutability IdMap.t;
   functions : (lattice list * lattice list) IdMap.t;
   depth : int;
   security_level : lattice;
@@ -16,13 +18,14 @@ type ni_env = {
 
 let empty_ni_env = {
   lattices = IdMap.empty;
+  mutability = IdMap.empty;
   functions = IdMap.empty;
   depth = 0;
   security_level = Public;
 }
 
 let add (id: string) (lat: lattice) (env: ni_env) : ni_env =
-  { lattices = IdMap.add id lat env.lattices; functions = env.functions; depth = env.depth; security_level = env.security_level }
+  { lattices = IdMap.add id lat env.lattices; mutability = env.mutability; functions = env.functions; depth = env.depth; security_level = env.security_level }
 
 let find (id: string) (env: ni_env) : lattice =
   IdMap.find id env.lattices
@@ -30,6 +33,12 @@ let find (id: string) (env: ni_env) : lattice =
 let find_opt (id: string) (env: ni_env) : lattice option =
   IdMap.find_opt id env.lattices
 
+let find_mutability (id: string) (env: ni_env) : mutability =
+  IdMap.find id env.mutability
+let find_mutability_opt (id: string) (env: ni_env) : mutability option =
+  IdMap.find_opt id env.mutability
+let add_mutability (id: string) (mut: mutability) (env: ni_env) : ni_env =
+  { env with mutability = IdMap.add id mut env.mutability }
 let check_security_level (env: ni_env) : lattice =
   env.security_level
 
