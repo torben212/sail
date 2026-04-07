@@ -12,10 +12,10 @@ open Ni_env
 module Callgraph_commands = Callgraph_commands
 
 
-let rec first_output (list : lattice list) : lattice list = 
-    match list with 
-       | [] -> []
-       | first_el::rest_of_list -> first_el :: []
+let first_lattice (list : lattice list) : lattice =
+  match list with
+  | [] -> failwith "Empty list"
+  | first_el::_ -> first_el
 
 (* Options for noninterference plugin *)
 let opt_output_dir = ref (Some ".")
@@ -59,44 +59,43 @@ let convert_string_to_lattice (var_name : string) : lattice =
       else
         failwith ("Variable " ^ var_name ^ " does not have a valid prefix (public_ or secret_)")
 
-let check_mutability (ni_env : ni_env) (id : id) (var_name : string) : ni_env =
-  if contains_substring var_name "fragile_" then (
-    Printf.printf "Adding variable %s to non-interference environment as Fragile\n" var_name;
-    add_mutability (string_of_id id) Fragile ni_env)
-  else if contains_substring var_name "mutable_" then (
-    Printf.printf "Adding variable %s to non-interference environment as Mutable\n" var_name;
-    add_mutability (string_of_id id) Mutable ni_env)
+let check_mutability (ni_env : ni_env) (id : string) : ni_env =
+  if contains_substring id "fragile_" then (
+    Printf.printf "Adding variable %s to non-interference environment as Fragile\n" id;
+    add_mutability id Fragile ni_env)
+  else if contains_substring id "mutable_" then (
+    Printf.printf "Adding variable %s to non-interference environment as Mutable\n" id;
+    add_mutability id Mutable ni_env)
   else
     ni_env (*If there is no mutability prefix, we just don't add it to the mutability environment and treat it as a normal variable*)
     
-let check_variable_lattice (ni_env : ni_env) (id: id) : ni_env = (*This is the function to check the lattice of a var based on its name. We update and return env*)
-  let var_name = string_of_id id in
+let check_variable_lattice (ni_env : ni_env) (id: string) : ni_env = (*This is the function to check the lattice of a var based on its name. We update and return env*)
   (*Printf.printf "Checking variable %s in non-interference environment\n" var_name;*)
-  match find_opt (string_of_id id) ni_env with (*We start by matching on the variable's lattice*)
+  match find_opt id ni_env with (*We start by matching on the variable's lattice*)
   | Some Secret ->
-      if contains_substring var_name "public_" then (  (*In this case we check if the variable is being downgraded which we don't allow*)
-        failwith ("Cannot downgrade secret variable " ^ var_name ^ " to public"))
+      if contains_substring id "public_" then (  (*In this case we check if the variable is being downgraded which we don't allow*)
+        failwith ("Cannot downgrade secret variable " ^ id ^ " to public"))
       else 
         ni_env
   | Some Public ->
-      if contains_substring var_name "secret_" then ( (*In this case we check if the variable is being upgraded which we do allow*)
-        add (string_of_id id) Secret ni_env
+      if contains_substring id "secret_" then ( (*In this case we check if the variable is being upgraded which we do allow*)
+        add id Secret ni_env
       )
       else
         ni_env
   | None -> (*The two previous cases should return ni_env all the time since the name changing would mean the id changes but we keep it for completeness*)
-      if contains_substring var_name "public_" then ( (*In this case we check if the variable is being added as public*)
-        Printf.printf "Adding variable %s to non-interference environment as Public\n" var_name;
-        let ni_env' = add (string_of_id id) Public ni_env in
-        let ni_env'' = check_mutability ni_env' id var_name in
+      if contains_substring id "public_" then ( (*In this case we check if the variable is being added as public*)
+        Printf.printf "Adding variable %s to non-interference environment as Public\n" id;
+        let ni_env' = add id Public ni_env in
+        let ni_env'' = check_mutability ni_env' id in
         ni_env''
       ) 
-      else if contains_substring var_name "secret_" then ( (*In this case we check if the variable is being added as secret*)
-        Printf.printf "Adding variable %s to non-interference environment as Secret\n" var_name;
-        let ni_env' = add (string_of_id id) Secret ni_env in
-        let ni_env'' = check_mutability ni_env' id var_name in
+      else if contains_substring id "secret_" then ( (*In this case we check if the variable is being added as secret*)
+        Printf.printf "Adding variable %s to non-interference environment as Secret\n" id;
+        let ni_env' = add id Secret ni_env in
+        let ni_env'' = check_mutability ni_env' id in
         ni_env'')
-      else failwith ("Variable " ^ var_name ^ " does not have a valid security lattice (public_ or secret_)")
+      else failwith ("Variable " ^ id ^ " does not have a valid security lattice (public_ or secret_)")
 
 
 let is_binop id = (*Helper function to use in identifying a binary operation*)
@@ -110,15 +109,21 @@ let is_binop id = (*Helper function to use in identifying a binary operation*)
 
   (*Infer_lattice is linked to check_expr. It is to be used when inferring lat tices. That is we expect the lattices we infer to already be in the environment.
   This is really only relevant cases that can involve variables. As of such literals are handled as an edge case*)
-let rec infer_lattice (ni_env : ni_env) (expr : 'a exp) : lattice = 
+let rec infer_lattice (ni_env : ni_env) (expr : 'a exp) : lattice list = 
   match expr with
-  | E_aux (E_lit _, _) -> Public (*Literal case*)
-  | E_aux (E_app (_, args), _) -> (*BinOp case; The operator doesn't affect the non-interference properties*)
-    if List.exists (fun e -> infer_lattice ni_env e = Secret) args then Secret else Public (* We run through the args and infer lattices. If one is secret, the entirety is treated as being secret*)
+  | E_aux (E_lit _, _) -> [Public] (*Literal case*)
+  | E_aux (E_app (id, args), _) when is_binop id -> (*BinOp case; The operator doesn't affect the non-interference properties*)
+    if List.exists (fun e -> infer_lattice ni_env e = [Secret]) args then [Secret] else [Public] (* We run through the args and infer lattices. If one is secret, the entirety is treated as being secret*)
+  | E_aux (E_app (id, args), _) -> ( (*Function call case *)
+      Printf.printf "Inferring lattice for function application of function %s\n" (string_of_id id);
+      let function_lattices = find_function (string_of_id id) ni_env in
+      let input_lattices, output_lattices = function_lattices in
+      output_lattices  
+  )
   | E_aux (E_id id, _) -> ( (*Variable case*)
     (*Printf.printf "Inferring lattice for variable %s\n" (string_of_id id);*)
       match find_opt (string_of_id id) ni_env with
-      | Some lattice -> lattice
+      | Some lattice -> [lattice]
       | None -> failwith ("Cannot infer lattice for unknown variable " ^ string_of_id id)
     )
   | E_aux (E_assign (lexp, value), _) -> (*Assign case*)
@@ -127,12 +132,12 @@ let rec infer_lattice (ni_env : ni_env) (expr : 'a exp) : lattice =
     (match pat with
     | P_aux (P_id id, _) ->
       (*we add the variable to the non-interference environment*)
-        let ni_env' = check_variable_lattice ni_env id in
+        let ni_env' = check_variable_lattice ni_env (string_of_id id) in
         let _ = infer_lattice ni_env' exp in
         infer_lattice ni_env' body
     | P_aux (P_typ (_, P_aux (P_id id, _)), _) ->
         (*we add the variable to the non-interference environment*)
-        let ni_env' = check_variable_lattice ni_env id in
+        let ni_env' = check_variable_lattice ni_env (string_of_id id) in
         let _ = infer_lattice ni_env' exp in
         infer_lattice ni_env' body
     | _ -> failwith "Unsupported pattern in let expression for lattice inference")
@@ -155,7 +160,7 @@ let rec check_assignment (ni_env : ni_env) (lhs_lattice : lattice) (rhs_lattice 
 
 
 
-  (*The main function check_expr serves to run through the ast tree and update our environment accordingly as well as check for non-interference violations*)
+(*The main function check_expr serves to run through the ast tree and update our environment accordingly as well as check for non-interference violations*)
 let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : unit = 
   (*Printf.printf "Checking expression for non-interference: %s\n" (string_of_exp expr);*)
   match expr with
@@ -189,7 +194,10 @@ let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : un
       Printf.printf "Checking function application for non-interference function %s\n" (string_of_id id);
       let function_lattices = find_function (string_of_id id) ni_env in
       let input_lattices, output_lattices = function_lattices in
-      let args_lattices = List.map (infer_lattice ni_env) args in
+      let args_lattices = List.fold_left (fun acc arg ->
+        let arg_lattice = infer_lattice ni_env arg in
+        acc @ arg_lattice)
+        [] args in
       if List.length input_lattices <> List.length args_lattices then
         failwith ("Function " ^ string_of_id id ^ " called with incorrect number of arguments")
       else
@@ -211,20 +219,21 @@ let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : un
     *)
       (match lexp with 
       | LE_aux (LE_id id, _) ->
-          let ni_env' = check_variable_lattice ni_env id in (*Update ni_env*)
+          let ni_env' = check_variable_lattice ni_env (string_of_id id) in (*Update ni_env*)
           if find_mutability (string_of_id id) ni_env' = Fragile then
             failwith ("Assignment variable " ^ string_of_id id ^ " is fragile and cannot be assigned to\n");
           let lhs_lattice = find (string_of_id id) ni_env' in (*find the lattice for the left-hand side*)
           let rhs_lattice = infer_lattice ni_env value in (*infer the lattice for the right-hand side*)
-          check_assignment ni_env lhs_lattice rhs_lattice (string_of_id id);
+          check_assignment ni_env lhs_lattice (first_lattice rhs_lattice)(string_of_id id);
           check_expr env value ni_env'
       | LE_aux (LE_deref exp, _) -> check_expr env exp ni_env
+      (*TODO handle Tuple*)
       | _ -> failwith "Unsupported lexp in assignment")
 
-  | E_aux (E_let (pat, exp, body), _) -> (*Let declarations*)
+  | E_aux (E_let (pat, exps, body), _) -> (*Let declarations*)
     (match pat with
     | P_aux (P_id id, _) ->
-        let ni_env' = check_variable_lattice ni_env id in
+        let ni_env' = check_variable_lattice ni_env (string_of_id id) in
         Printf.printf "Checking env for newly added variable %s: %s\n" (string_of_id id) (string_of_lattice (find (string_of_id id) ni_env'));
         let mutability = match find_mutability_opt (string_of_id id) ni_env' with
           | Some mut -> mut
@@ -234,14 +243,14 @@ let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : un
         if mutability = Fragile then
           failwith "Assignment variable is fragile\n";
         let lhs_lattice = find (string_of_id id) ni_env' in
-        check_expr env exp ni_env';
-        let rhs_lattice = infer_lattice ni_env' exp in
-        check_assignment ni_env lhs_lattice rhs_lattice (string_of_id id);
+        check_expr env exps ni_env';
+        let rhs_lattice = infer_lattice ni_env' exps in
+        check_assignment ni_env lhs_lattice (first_lattice rhs_lattice) (string_of_id id);
         check_expr env body ni_env' 
     | P_aux (P_typ (_, pat), _) -> (*Let decl with typed annotation*)
       (match pat with
       | P_aux (P_id id, _) ->
-          let ni_env' = check_variable_lattice ni_env id in
+          let ni_env' = check_variable_lattice ni_env (string_of_id id) in
           Printf.printf "Checking env for newly added variable %s: %s\n" (string_of_id id) (string_of_lattice (find (string_of_id id) ni_env'));
           let mutability = match find_mutability_opt (string_of_id id) ni_env' with
             | Some mut -> mut
@@ -251,18 +260,32 @@ let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : un
           if mutability = Fragile then
             failwith "Assignment variable is fragile\n";
           let lhs_lattice = find (string_of_id id) ni_env' in
-          check_expr env exp ni_env';
-          let rhs_lattice = infer_lattice ni_env' exp in
-          check_assignment ni_env lhs_lattice rhs_lattice (string_of_id id);
+          check_expr env exps ni_env';
+          let rhs_lattice = infer_lattice ni_env' exps in
+          check_assignment ni_env lhs_lattice (first_lattice rhs_lattice) (string_of_id id);
           check_expr env body ni_env' (*The body is the next expression*)
       | _ -> failwith "Unsupported pattern in typed let expression")
+    | P_aux (P_tuple pats, _) -> ( (*let decl med tuplle pattern*)
+          let exp_lattice_list = infer_lattice ni_env exps in
+          if List.length pats <> List.length exp_lattice_list then
+            failwith ((Printf.sprintf "let assignement with tuple pattern has different number of patterns: %d and expressions: %d" (List.length pats) (List.length exp_lattice_list)))
+          else
+          let updat = List.fold_left (fun ni_env (pat, lattice) -> 
+            Printf.printf "Checking tuple pattern %s \n" (string_of_pat pat);
+            let updated_env = check_variable_lattice ni_env (string_of_pat pat) in
+            let lhs_lattice = find (string_of_pat pat) updated_env in
+            check_assignment ni_env lhs_lattice lattice (string_of_pat pat);
+            updated_env
+            ) ni_env (List.combine pats exp_lattice_list) in
+            check_expr env body updat
+      )
     | _ -> failwith "Unsupported pattern in let expression match")
 
   | E_aux (E_block exprs, _) -> (*Block expression*)
     List.iter (fun e -> check_expr env e ni_env) exprs
 
   | E_aux (E_id id, _) -> (*Var expression*)
-    let ni_env' = check_variable_lattice ni_env id in (*Probably shouldn't have this since a var has to be declared before where 
+    let ni_env' = check_variable_lattice ni_env (string_of_id id) in (*Probably shouldn't have this since a var has to be declared before where 
     we probably added it to our environment. Thus this is kind of redundant.*)
     ()
   | E_aux (E_if (cond, then_exp, else_exp), _) -> (*If statement*)
@@ -270,7 +293,7 @@ let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : un
     secret variable, we have to make sure that there are no assigments to public variables in 
   branches.*)
       check_expr env cond ni_env;
-      (match infer_lattice ni_env cond with
+      (match (first_lattice (infer_lattice ni_env cond)) with
       | Secret -> 
           Printf.printf "Condition is secret, checking branches with elevated security level\n";
           let ni_env' = set_security_level ni_env Secret in 
@@ -283,7 +306,7 @@ let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : un
           
   | E_aux (E_loop (_,  _, cond, body), _) -> (*Loop expression*)
         check_expr env cond ni_env;
-        (match infer_lattice ni_env cond with
+        (match (first_lattice (infer_lattice ni_env cond)) with
         | Secret -> 
             Printf.printf "Loop condition is secret, checking body with elevated security level\n";
             let ni_env' = set_security_level ni_env Secret in
@@ -313,7 +336,7 @@ let rec inputs_to_list (pat : 'a pat) (ni_env : ni_env) : lattice list =
 
 let rec add_input_to_env (pat : 'a pat) (ni_env : ni_env) : ni_env =
    let ni_env' = (match pat with 
-    | P_aux (P_id id, _) -> check_variable_lattice ni_env id
+    | P_aux (P_id id, _) -> check_variable_lattice ni_env (string_of_id id)
     | P_aux (P_typ (_, pat), _) -> add_input_to_env pat ni_env
     | P_aux (P_var (pat, _), _) -> add_input_to_env pat ni_env
     | P_aux (P_app (_, pats), _) -> List.fold_left (fun acc p -> add_input_to_env p acc) ni_env pats
@@ -333,23 +356,29 @@ let rec outputs_to_list (expr : 'a exp) (ni_env : ni_env) : lattice list =
         (match ret_exp with
         | E_aux (E_lit _, _) -> Public :: acc, e (*Literal case*)
         | E_aux (E_id id, _) -> ( (*Variable case*)
-          (*Printf.printf "Inferring lattice for variable %s\n" (string_of_id id);*)
-          (*  match find_opt (string_of_id id) ni_env with
-            | Some lattice -> lattice :: acc, e
-            | None -> failwith ("Cannot infer lattice for unknown variable in outputs to list" ^ string_of_id id)
-          )
-          | _ -> failwith "Unsupported pattern in let expression for outputs to list")*)
-          let ni_env' = check_variable_lattice ni_env id in
-          let lattice = find (string_of_id id) ni_env' in
+          let ni_env' = check_variable_lattice ni_env (string_of_id id) in
+          let lattice = find (string_of_id id) ni_env' in 
           (match lattice with
           | lat -> lattice :: acc, e))
-        | _ -> failwith "Unsupported return expression type in outputs to list")
+        | E_aux (E_tuple exps, _) -> (
+          let lattices = List.fold_left (fun (lats) exp ->
+            match exp with
+            | E_aux (E_lit _, _) -> Public :: lats
+            | E_aux (E_id id, _) -> 
+              let ni_env' = check_variable_lattice ni_env (string_of_id id) in
+              let lattice = find (string_of_id id) ni_env' in
+              lattice :: lats
+            | _ -> failwith "Unsupported pattern in tuple expression for outputs to"
+          ) ([]) exps in
+          lattices @ acc, e
+            )
+        | _ -> failwith (Printf.sprintf "Unsupported input parameter for function in add input to env: %s" (string_of_exp ret_exp)))
     | _ ->
         recurse acc e
   in
   let returns, _ = Rewriter.foldin_exp step [] expr in
-  let correct_order = List.rev returns in
-  first_output correct_order (*We take the first return statement as the output lattice. This is a simplification that we make for now, but it should be sufficient for our current purposes. In the future, we might want to consider all return statements and check for consistency among them.*)
+  List.rev returns
+  (*We take the first return statement as the output lattice. This is a simplification that we make for now, but it should be sufficient for our current purposes. In the future, we might want to consider all return statements and check for consistency among them.*)
 
 let add_functions_to_env (ast : Type_check.typed_ast) (ni_env : ni_env) : ni_env =
     List.fold_left (fun acc def ->
@@ -364,6 +393,7 @@ let add_functions_to_env (ast : Type_check.typed_ast) (ni_env : ni_env) : ni_env
               let input_lattice_list = inputs_to_list input ni_env in
               let output_lattice_list = outputs_to_list body ni_env in
               let updated_env = add_function (string_of_id id) input_lattice_list output_lattice_list env in
+              let found foo = find_function "foo" updated_env in
               updated_env
             | _ -> env
           )
@@ -424,6 +454,7 @@ let noninterference_target out_file { ast; effect_info; env; _ } =
   );
   
   let ni_env = add_functions_to_env ast empty_ni_env in
+  let _ = find_function "foo" ni_env in
   check_ast env ast ni_env
 
 let _ =

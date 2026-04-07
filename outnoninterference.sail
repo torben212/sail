@@ -29,13 +29,14 @@ val undefined_unit = monadic {_: "undefined_unit"}: unit -> unit
 
 default Order dec
 
-val foo : (int, int) -> int
+val foo : (int, int) -> (int, int)
 
 $[complete]
-function foo (public_a, public_b) = {
-    let public_c : int = $[overloaded { "name" = "+", "is_infix" = true }] add_atom(public_a, public_b);
-    let secret_b : int = public_a;
-    return(secret_b)
+function foo (public_a, secret_a) = {
+    let public_c : int = $[overloaded { "name" = "+", "is_infix" = true }] add_atom(public_a, public_a);
+    let secret_b : int = secret_a;
+    let secret_c : int = 2;
+    return((secret_b, secret_c))
 }
 
 val main : unit -> int
@@ -43,7 +44,8 @@ val main : unit -> int
 $[complete]
 function main () = {
     let public_c = 1;
-    let secret_d = foo(public_c, public_c);
+    let secret_a = 1;
+    let (secret_d, public_e) = foo(public_c, secret_a);
     return(secret_d)
 }
 
