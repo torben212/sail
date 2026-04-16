@@ -102,9 +102,9 @@ let is_binop id = (*Helper function to use in identifying a binary operation*)
   let op = string_of_id id in
   Printf.printf "Checking if operator %s is a binary operator\n" op;
   match op with
-    | "+" | "-" | "*" | "/" | "&&" | "||" | "==" | "!=" | "<" | ">" | "<=" | ">=" | "add_atom"
+    | "+" | "-" | "*" | "/" | "&&" | "||" | "|" | "==" | "!=" | "<" | ">" | "<=" | ">=" | "add_atom"
     | "sub_atom" | "mult_atom" | "gt_int" | "lt_int" | "lteq_int" | "gteq_int" | "eq_int" | "neq_int"
-    | "eq_bool" | "neq_bool" -> true
+    | "eq_bool" | "neq_bool" | "or_bool" -> true
     | _ -> false
 
   (*Infer_lattice is linked to check_expr. It is to be used when inferring lat tices. That is we expect the lattices we infer to already be in the environment.
@@ -220,8 +220,10 @@ let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : un
       (match lexp with 
       | LE_aux (LE_id id, _) ->
           let ni_env' = check_variable_lattice ni_env (string_of_id id) in (*Update ni_env*)
-          if find_mutability (string_of_id id) ni_env' = Fragile then
-            failwith ("Assignment variable " ^ string_of_id id ^ " is fragile and cannot be assigned to\n");
+          (match find_mutability_opt (string_of_id id) ni_env' with
+          | Some Fragile ->
+            failwith ("Assignment variable " ^ string_of_id id ^ " is fragile and cannot be assigned to\n")
+          | _ -> ());
           let lhs_lattice = find (string_of_id id) ni_env' in (*find the lattice for the left-hand side*)
           let rhs_lattice = infer_lattice ni_env value in (*infer the lattice for the right-hand side*)
           check_assignment ni_env lhs_lattice (first_lattice rhs_lattice)(string_of_id id);
@@ -240,13 +242,12 @@ let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : un
           | None -> Mutable
         in
         Printf.printf "Checking env for newly added variable %s: %s\n" (string_of_id id) (string_of_mutability mutability);
-        if mutability = Fragile then
-          failwith "Assignment variable is fragile\n";
         let lhs_lattice = find (string_of_id id) ni_env' in
         check_expr env exps ni_env';
         let rhs_lattice = infer_lattice ni_env' exps in
         check_assignment ni_env lhs_lattice (first_lattice rhs_lattice) (string_of_id id);
         check_expr env body ni_env' 
+
     | P_aux (P_typ (_, pat), _) -> (*Let decl with typed annotation*)
       (match pat with
       | P_aux (P_id id, _) ->
@@ -257,14 +258,14 @@ let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : un
             | None -> Mutable
           in
           Printf.printf "Checking env for newly added variable %s: %s\n" (string_of_id id) (string_of_mutability mutability);
-          if mutability = Fragile then
-            failwith "Assignment variable is fragile\n";
           let lhs_lattice = find (string_of_id id) ni_env' in
           check_expr env exps ni_env';
           let rhs_lattice = infer_lattice ni_env' exps in
           check_assignment ni_env lhs_lattice (first_lattice rhs_lattice) (string_of_id id);
           check_expr env body ni_env' (*The body is the next expression*)
+
       | _ -> failwith "Unsupported pattern in typed let expression")
+
     | P_aux (P_tuple pats, _) -> ( (*let decl med tuplle pattern*)
           let exp_lattice_list = infer_lattice ni_env exps in
           if List.length pats <> List.length exp_lattice_list then
@@ -280,6 +281,24 @@ let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : un
             check_expr env body updat
       )
     | _ -> failwith "Unsupported pattern in let expression match")
+  
+  | E_aux (E_var (lexp, exps, body), _) ->  (*Var declaration*)
+      (match lexp with
+      | LE_aux (LE_id id, _) ->
+          let ni_env' = check_variable_lattice ni_env (string_of_id id) in
+          check_expr env exps ni_env';
+          let lhs_lattice = find (string_of_id id) ni_env' in
+          let rhs_lattice = infer_lattice ni_env' exps in
+          check_assignment ni_env lhs_lattice (first_lattice rhs_lattice) (string_of_id id);
+          check_expr env body ni_env'
+      | LE_aux (LE_typ (_, id), _) ->
+          let ni_env' = check_variable_lattice ni_env (string_of_id id) in
+          check_expr env exps ni_env';
+          let lhs_lattice = find (string_of_id id) ni_env' in
+          let rhs_lattice = infer_lattice ni_env' exps in
+          check_assignment ni_env lhs_lattice (first_lattice rhs_lattice) (string_of_id id);
+          check_expr env body ni_env'
+      | _ -> failwith "Unsupported lexp in var declaration")
 
   | E_aux (E_block exprs, _) -> (*Block expression*)
     List.iter (fun e -> check_expr env e ni_env) exprs
@@ -288,6 +307,7 @@ let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : un
     let ni_env' = check_variable_lattice ni_env (string_of_id id) in (*Probably shouldn't have this since a var has to be declared before where 
     we probably added it to our environment. Thus this is kind of redundant.*)
     ()
+
   | E_aux (E_if (cond, then_exp, else_exp), _) -> (*If statement*)
   (*In an if statement we check the condition first. If the condition has anything to do with a 
     secret variable, we have to make sure that there are no assigments to public variables in 
@@ -454,7 +474,6 @@ let noninterference_target out_file { ast; effect_info; env; _ } =
   );
   
   let ni_env = add_functions_to_env ast empty_ni_env in
-  let _ = find_function "foo" ni_env in
   check_ast env ast ni_env
 
 let _ =
