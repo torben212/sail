@@ -123,6 +123,11 @@ http://www.cl.cam.ac.uk/~pes20/sail/.
   (depends
     (libsail (= :version))))
    
+(package
+  (name sail_dead_code_elimination_backend)
+  (synopsis "Sail dead code elimination plugin")
+  (depends
+    (libsail (= :version))))
 
 (package
   (name sail_doc_backend)

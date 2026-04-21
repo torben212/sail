@@ -1,0 +1,13 @@
+default Order dec
+$include <prelude.sail>
+
+val main : (int, int) -> int
+
+$[complete]
+function main (public_z, public_b) = {
+    {
+        let secret_b = 2;
+        ()
+    };
+    return(1)
+}

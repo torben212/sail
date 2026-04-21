@@ -29,24 +29,27 @@ val undefined_unit = monadic {_: "undefined_unit"}: unit -> unit
 
 default Order dec
 
-val foo : (int, int) -> (int, int)
-
-$[complete]
-function foo (public_a, secret_a) = {
-    let public_c : int = $[overloaded { "name" = "+", "is_infix" = true }] add_atom(public_a, public_a);
-    let secret_b : int = secret_a;
-    let secret_c : int = 2;
-    return((secret_b, secret_c))
-}
-
 val main : unit -> int
 
 $[complete]
 function main () = {
-    let public_c = 1;
-    let secret_a = 1;
-    let (secret_d, public_e) = foo(public_c, secret_a);
-    return(secret_d)
+    let public_a = 1;
+    let public_b = 1;
+    let public_xxx = true;
+    let public_yyy = false;
+    let public_c = $[overloaded { "name" = "+", "is_infix" = true }] add_atom(public_a, public_b);
+    let public_d = $[overloaded { "name" = "-", "is_infix" = true }] sub_atom(public_a, public_b);
+    let public_e = $[overloaded { "name" = "*", "is_infix" = true }] mult_atom(public_a, public_b);
+    let public_g = $[overloaded { "name" = ">", "is_infix" = true }] gt_int(public_a, public_b);
+    let public_h = $[overloaded { "name" = "<", "is_infix" = true }] lt_int(public_a, public_b);
+    let public_i = $[overloaded { "name" = "<=", "is_infix" = true }] lteq_int(public_a, public_b);
+    let public_j = $[overloaded { "name" = ">=", "is_infix" = true }] gteq_int(public_a, public_b);
+    let public_k = $[overloaded { "name" = "==", "is_infix" = true }] eq_int(public_a, public_b);
+    let public_l = $[overloaded { "name" = "!=", "is_infix" = true }] neq_int(public_a, public_b);
+    let public_m = $[overloaded { "name" = "==", "is_infix" = true }] eq_bool(public_xxx, public_yyy);
+    var public_n = $[overloaded { "name" = "!=", "is_infix" = true }] neq_bool(public_xxx, public_yyy);
+    public_n = false;
+    return(public_c)
 }
 
 $[global]

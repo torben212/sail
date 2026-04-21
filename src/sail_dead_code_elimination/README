@@ -1,0 +1,7 @@
+dead code elimination command
+
+sail --dead-code-elimination --dead-code-elimination-output-file basic_if --dead-code-elimination-assumptions-file ./test/non_interference/dead_code_assumptions/HelloWorld ./test/non_interference/dead_code_inputs/dc_basic_if.sail
+
+non interference comand
+
+sail --noninterference ./test/non_interference/dead_code_output/basic_if.sail

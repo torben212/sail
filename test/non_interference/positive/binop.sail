@@ -18,6 +18,6 @@ function main () = {
     let public_k = public_a == public_b;
     let public_l = public_a != public_b;
     let public_m = public_xxx == public_yyy;
-    let public_n = public_xxx != public_yyy;
+    var public_n = public_xxx != public_yyy;
     return public_c;
 }
