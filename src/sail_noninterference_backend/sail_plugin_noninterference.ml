@@ -107,6 +107,21 @@ let is_binop id = (*Helper function to use in identifying a binary operation*)
     | "eq_bool" | "neq_bool" | "or_bool" -> true
     | _ -> false
 
+    (*This function exists to check the security level when assigning a variable such that assignments in loop contexts work
+    with non-interference*)  
+let rec check_assignment (ni_env : ni_env) (lhs_lattice : lattice) (rhs_lattice : lattice) (id : string) : unit = 
+    match check_security_level ni_env with
+            | Secret -> (*If we are in a secret context we allow no assignements to public variables, but we allow all other*)
+                (match (lhs_lattice, rhs_lattice) with
+                | (Public, _) ->
+                    failwith ("Non-interference violation: assigning value to public variable " ^ id ^ " in secret context")
+                | _ -> () )
+            | Public ->
+            (match (lhs_lattice, rhs_lattice) with
+            | (Public, Secret) ->
+                failwith ("Non-interference violation: assigning secret value to public variable " ^ id ^ "in public context")
+            | _ -> () )
+
   (*Infer_lattice is linked to check_expr. It is to be used when inferring lat tices. That is we expect the lattices we infer to already be in the environment.
   This is really only relevant cases that can involve variables. As of such literals are handled as an edge case*)
 let rec infer_lattice (ni_env : ni_env) (expr : 'a exp) : lattice list = 
@@ -126,17 +141,6 @@ let rec infer_lattice (ni_env : ni_env) (expr : 'a exp) : lattice list =
       | Some lattice -> [lattice]
       | None -> failwith ("Cannot infer lattice for unknown variable " ^ string_of_id id)
     )
-  | E_aux (E_assign (lexp, value), _) -> (*Assign case*)
-    (match lexp with
-    | LE_aux (LE_id id, _) ->
-        let ni_env' = check_variable_lattice ni_env (string_of_id id) in
-        let lhs_lattice = find (string_of_id id) ni_env' in
-        let rhs_lattice = infer_lattice ni_env value in
-        check_assignment ni_env lhs_lattice (first_lattice rhs_lattice) (string_of_id id);
-        rhs_lattice
-    | LE_aux (LE_deref exp, _) -> infer_lattice ni_env exp
-    (*TODO handle Tuple*)
-    | _ -> failwith "Unsupported lexp in assignment for lattice inference")
   | E_aux (E_let (pat, exp, body), _) -> (*Let decl case*)
     (match pat with
     | P_aux (P_id id, _) ->
@@ -151,22 +155,6 @@ let rec infer_lattice (ni_env : ni_env) (expr : 'a exp) : lattice list =
         infer_lattice ni_env' body
     | _ -> failwith "Unsupported pattern in let expression for lattice inference")
   | _ -> failwith "not supported in inference"
-
-(*This function exists to check the security level when assigning a variable such that assignments in loop contexts work
-    with non-interference*)  
-let rec check_assignment (ni_env : ni_env) (lhs_lattice : lattice) (rhs_lattice : lattice) (id : string) : unit = 
-    match check_security_level ni_env with
-            | Secret -> (*If we are in a secret context we allow no assignements to public variables, but we allow all other*)
-                (match (lhs_lattice, rhs_lattice) with
-                | (Public, _) ->
-                    failwith ("Non-interference violation: assigning value to public variable " ^ id ^ " in secret context")
-                | _ -> () )
-            | Public ->
-            (match (lhs_lattice, rhs_lattice) with
-            | (Public, Secret) ->
-                failwith ("Non-interference violation: assigning secret value to public variable " ^ id ^ "in public context")
-            | _ -> () )
-
 
 
 (*The main function check_expr serves to run through the ast tree and update our environment accordingly as well as check for non-interference violations*)
