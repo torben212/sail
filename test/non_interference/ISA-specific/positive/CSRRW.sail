@@ -5,6 +5,7 @@ val foo : (int, int, int) -> int
 
 // Demonstrating the case that if we pass the security requirements for the CSR we are trying to access, we are free to read (and write) to that CSR
 //without having breaking non-interference
+
 function foo (public_rd, public_CSR, public_rs1) = {
     var public_rd2 : int = public_rd;
     var public_CSR2 : int = public_CSR;

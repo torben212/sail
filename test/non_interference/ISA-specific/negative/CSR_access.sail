@@ -4,6 +4,7 @@ $include <prelude.sail>
 val foo : (int, int) -> int
 
 // This test is to demonstrate that if we were able to bypass the access control checks, then we could write to a read-only CSR
+
 function foo (fragile_public_CSR, public_operation_access_level) = {
     let public_bypass : bool = true;
     var fragile_public_CSR2 : int = fragile_public_CSR;
