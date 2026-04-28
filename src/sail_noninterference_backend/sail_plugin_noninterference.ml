@@ -127,7 +127,16 @@ let rec infer_lattice (ni_env : ni_env) (expr : 'a exp) : lattice list =
       | None -> failwith ("Cannot infer lattice for unknown variable " ^ string_of_id id)
     )
   | E_aux (E_assign (lexp, value), _) -> (*Assign case*)
-    failwith "Not implemented yet assign"
+    (match lexp with
+    | LE_aux (LE_id id, _) ->
+        let ni_env' = check_variable_lattice ni_env (string_of_id id) in
+        let lhs_lattice = find (string_of_id id) ni_env' in
+        let rhs_lattice = infer_lattice ni_env value in
+        check_assignment ni_env lhs_lattice (first_lattice rhs_lattice) (string_of_id id);
+        rhs_lattice
+    | LE_aux (LE_deref exp, _) -> infer_lattice ni_env exp
+    (*TODO handle Tuple*)
+    | _ -> failwith "Unsupported lexp in assignment for lattice inference")
   | E_aux (E_let (pat, exp, body), _) -> (*Let decl case*)
     (match pat with
     | P_aux (P_id id, _) ->
