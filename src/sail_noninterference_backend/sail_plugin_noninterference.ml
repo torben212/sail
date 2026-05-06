@@ -101,10 +101,10 @@ let check_variable_lattice (ni_env : ni_env) (id: string) : ni_env = (*This is t
 let is_binop id = (*Helper function to use in identifying a binary operation*)
   let op = string_of_id id in
   Printf.printf "Checking if operator %s is a binary operator\n" op;
-  match op with
+    match op with
     | "+" | "-" | "*" | "/" | "&&" | "||" | "|" | "==" | "!=" | "<" | ">" | "<=" | ">=" | "add_atom"
     | "sub_atom" | "mult_atom" | "gt_int" | "lt_int" | "lteq_int" | "gteq_int" | "eq_int" | "neq_int"
-    | "eq_bool" | "neq_bool" | "or_bool" -> true
+    | "eq_bool" | "neq_bool" | "or_bool" | "add_bits" -> true
     | _ -> false
 
     (*This function exists to check the security level when assigning a variable such that assignments in loop contexts work
@@ -168,6 +168,7 @@ let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : un
     | L_aux (L_true, _) | L_aux (L_false, _) -> ()
     | L_aux (L_real _, _) -> ()
     | L_aux (L_string _, _) -> ()
+    | L_aux (L_hex _, _) -> ()
     | _ -> failwith "Unsupported literal type")
     (* 
     We match literals here to limit what types of literals we currently support in our non-interference
@@ -402,19 +403,15 @@ let add_functions_to_env (ast : Type_check.typed_ast) (ni_env : ni_env) : ni_env
       match def with
       | DEF_aux (DEF_fundef (FD_aux (FD_function (_, _, funcls), _)), _) -> 
         List.fold_left (fun env (FCL_aux (FCL_funcl (id, pexp), _)) ->
-          if string_of_id id = "foo" then (
-            Printf.printf "Adding function %s to non-inteference environment\n" (string_of_id id);
-            match pexp with
-            |Pat_aux (Pat_exp (input, body), _) ->
-              (*Vi burde lave et match case her for at sikre os at der faktisk er inputs*)
-              let input_lattice_list = inputs_to_list input ni_env in
-              let output_lattice_list = outputs_to_list body ni_env in
-              let updated_env = add_function (string_of_id id) input_lattice_list output_lattice_list env in
-              let found foo = find_function "foo" updated_env in
-              updated_env
-            | _ -> env
-          )
-          else env
+          Printf.printf "Adding function %s to non-inteference environment\n" (string_of_id id);
+          match pexp with
+          |Pat_aux (Pat_exp (input, body), _) ->
+            (*Vi burde lave et match case her for at sikre os at der faktisk er inputs*)
+            let input_lattice_list = inputs_to_list input ni_env in
+            let output_lattice_list = outputs_to_list body ni_env in
+            let updated_env = add_function (string_of_id id) input_lattice_list output_lattice_list env in
+            updated_env
+          | _ -> env
           ) acc funcls
       | _ -> acc
             ) ni_env ast.defs
@@ -426,26 +423,28 @@ let check_ast (env : Type_check.env) (ast : Type_check.typed_ast) (ni_env : ni_e
     | DEF_aux (DEF_fundef (FD_aux (FD_function (_, _, funcls), _)), _) ->
         List.iter 
           (fun (FCL_aux (FCL_funcl (id, pexp), _)) ->
-            if string_of_id id = "main" || string_of_id id = "foo" then (
-              Printf.printf "Checking function %s for non-interference\n" (string_of_id id);
-              match pexp with
-              |Pat_aux (Pat_exp (input, body), _) -> 
-                let added_input_env = add_input_to_env input ni_env in
-                check_expr env body added_input_env
-              | _ -> ()))
+            Printf.printf "Checking function %s for non-interference\n" (string_of_id id);
+            match pexp with
+            |Pat_aux (Pat_exp (input, body), _) -> 
+              let added_input_env = add_input_to_env input ni_env in
+              check_expr env body added_input_env
+            | _ -> ())
           funcls 
     | _ -> ()
   ) ast.defs  
 
+  (*This function filters out functions included in sail prelude such that we do not analyze them. It works by incrementing a depth counter
+  every time we encounter include_start, since all functions herein should be excluded. When we encounter include_end, we return
+  to regular depth and add functions.*)
 let defs_without_includes defs =
-    let rec go depth acc = function
-      | DEF_aux (DEF_pragma ("include_start", _), _) :: rest -> go (depth + 1) acc rest
-      | DEF_aux (DEF_pragma ("include_end", _), _) :: rest -> go (max 0 (depth - 1)) acc rest
-      | def :: rest when depth = 0 -> go depth (def :: acc) rest
-      | _ :: rest -> go depth acc rest
+    let rec filter depth acc = function
+      | DEF_aux (DEF_pragma ("include_start", _), _) :: rest -> filter (depth + 1) acc rest
+      | DEF_aux (DEF_pragma ("include_end", _), _) :: rest -> filter (max 0 (depth - 1)) acc rest
+      | def :: rest when depth = 0 -> filter depth (def :: acc) rest
+      | _ :: rest -> filter depth acc rest
       | [] -> List.rev acc
     in
-    go 0 [] defs
+    filter 0 [] defs
 
 let noninterference_target out_file { ast; effect_info; env; _ } =
   let output_filename = match out_file with 
@@ -470,8 +469,9 @@ let noninterference_target out_file { ast; effect_info; env; _ } =
     flush_all ()
   );
   
-  let ni_env = add_functions_to_env ast empty_ni_env in
-  check_ast env ast ni_env
+  let user_defs = defs_without_includes ast.defs in
+  let ni_env = add_functions_to_env { ast with defs = user_defs } empty_ni_env in
+  check_ast env { ast with defs = user_defs } ni_env
 
 let _ =
   Target.register
