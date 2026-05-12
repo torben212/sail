@@ -20,6 +20,8 @@ let first_lattice (list : lattice list) : lattice =
 (* Options for noninterference plugin *)
 let opt_output_dir = ref (Some ".")
 let opt_verbose = ref false
+
+let opt_security_level = ref None
 let noninterference_options =
   [
     ( Flag.create ~prefix:["noninterference"] ~arg:"directory" "output_dir",
@@ -29,6 +31,16 @@ let noninterference_options =
     ( Flag.create ~prefix:["noninterference"] "verbose",
       Arg.Set opt_verbose,
       "enable verbose output for noninterference analysis" 
+    );
+    ( Flag.create ~prefix:["noninterference"] ~arg:"security_level" "security_level",
+      Arg.String (fun lat ->
+        match lat with
+        | "User" -> opt_security_level := Some User
+        | "Supervisor" -> opt_security_level := Some Supervisor
+        | "Machine" -> opt_security_level := Some Machine
+        | _ -> failwith "Invalid security level. Valid options are: User, Supervisor, Machine"
+      ),
+      "set the initial security level for noninterference analysis (User, Supervisor, Machine)"
     );
   ]
 let contains_substring s sub =
@@ -43,6 +55,9 @@ let contains_substring s sub =
 let string_of_lattice = function (*Simple conversion function used for debugging*)
   | Secret -> "Secret"
   | Public -> "Public"
+  | User -> "User"
+  | Supervisor -> "Supervisor"
+  | Machine -> "Machine"
 
 
 let string_of_mutability = function (*Simple conversion function used for debugging*)
@@ -352,7 +367,7 @@ let rec inputs_to_list (pat : 'a pat) (ni_env : ni_env) : lattice list =
     | P_aux (P_var (pat, _), _) -> inputs_to_list pat ni_env
     | P_aux (P_app (_, pats), _) -> List.fold_left (fun acc p -> acc @ inputs_to_list p ni_env) [] pats
     | P_aux (P_list pats, _) -> List.fold_left (fun acc p -> acc @ inputs_to_list p ni_env) [] pats
-    | _ -> Printf.printf("Unsupported input parameter for function in inputs to list: %s") (string_of_pat pat);
+    | _ -> Printf.printf("Unsupported input parameter for function in inputs to list: %s\n") (string_of_pat pat);
             []
 
 let rec add_input_to_env (pat : 'a pat) (ni_env : ni_env) : ni_env =
@@ -474,8 +489,11 @@ let noninterference_target out_file { ast; effect_info; env; _ } =
   
   let user_defs = defs_without_includes ast.defs in
   let ni_env = add_functions_to_env { ast with defs = user_defs } empty_ni_env in
+  let ni_env = if !opt_security_level <> None then (
+    set_ass_sec_lev ni_env (Option.get !opt_security_level)
+  ) else ni_env in
+  Printf.printf "Security level: %s\n" (string_of_lattice (get_ass_sec_lev ni_env));
   check_ast env { ast with defs = user_defs } ni_env
-
 let _ =
   Target.register
     ~name:"noninterference"

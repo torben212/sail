@@ -3,7 +3,7 @@ open Ast
 open Ast_util
 open Ast_compare
 
-type lattice = Public | Secret
+type lattice = Public | Secret | User | Supervisor | Machine
 type mutability = Mutable | Fragile
 
 module IdMap = Map.Make(struct type t = string let compare = compare end)
@@ -14,6 +14,7 @@ type ni_env = {
   functions : (lattice list * lattice list) IdMap.t;
   depth : int;
   security_level : lattice;
+  ass_sec_lev : lattice;
 }
 
 let empty_ni_env = {
@@ -22,10 +23,11 @@ let empty_ni_env = {
   functions = IdMap.empty;
   depth = 0;
   security_level = Public;
+  ass_sec_lev = User;
 }
 
 let add (id: string) (lat: lattice) (env: ni_env) : ni_env =
-  { lattices = IdMap.add id lat env.lattices; mutability = env.mutability; functions = env.functions; depth = env.depth; security_level = env.security_level }
+  { lattices = IdMap.add id lat env.lattices; mutability = env.mutability; functions = env.functions; depth = env.depth; security_level = env.security_level; ass_sec_lev = env.ass_sec_lev}
 
 let find (id: string) (env: ni_env) : lattice =
   IdMap.find id env.lattices
@@ -58,3 +60,9 @@ let add_function (id: string) (input_lat : lattice list) (output_lat : lattice l
 
 let find_function (id: string) (env: ni_env) : (lattice list * lattice list) =
   IdMap.find id env.functions
+
+let get_ass_sec_lev (env : ni_env) : lattice =
+  env.ass_sec_lev
+
+let set_ass_sec_lev (env : ni_env) (lat : lattice) : ni_env =
+  {env with ass_sec_lev = lat}

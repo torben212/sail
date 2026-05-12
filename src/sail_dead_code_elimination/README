@@ -4,8 +4,7 @@ sail --dead-code-elimination --dead-code-elimination-output-file basic_if --dead
 
 non interference comand
 
-sail --noninterference ./test/non_interference/dead_code_output/basic_if.sail
-
+sail --noninterference ./test/non_interference/dead_code_output/basic_if.sail --noninterference-security-level <security_level>
 
 # Interisting things we have found
 
