@@ -5,3 +5,25 @@ sail --dead-code-elimination --dead-code-elimination-output-file basic_if --dead
 non interference comand
 
 sail --noninterference ./test/non_interference/dead_code_output/basic_if.sail
+
+
+# Interisting things we have found
+
+Definition mstatus_ref := {|
+  name := "mstatus";
+  read_from := (fun s => s.(mstatus));
+  write_to := (fun v s => ({[ s with mstatus := v ]}));
+  of_regval := (fun v => Mstatus_of_regval v);
+  regval_of := (fun v => regval_of_Mstatus v) |}.
+
+  _get_Mstatus
+
+  Definition execute_SFENCE_VMA
+
+
+  Definition privLevel_to_str (p : Privilege) 
+: string :=
+   
+   match p with | User => "U" | Supervisor => "S" | Machine => "M" end.
+
+Riscv.thy
