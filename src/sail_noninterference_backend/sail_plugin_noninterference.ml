@@ -158,17 +158,17 @@ let rec infer_lattice (ni_env : ni_env) (expr : 'a exp) : lattice list =
 
 
 (*The main function check_expr serves to run through the ast tree and update our environment accordingly as well as check for non-interference violations*)
-let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : unit = 
+let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : ni_env = 
   (*Printf.printf "Checking expression for non-interference: %s\n" (string_of_exp expr);*)
   match expr with
   | E_aux (E_lit lit, _) ->
     (match lit with
-    | L_aux (L_unit, _) -> ()
-    | L_aux (L_num _, _) -> ()
-    | L_aux (L_true, _) | L_aux (L_false, _) -> ()
-    | L_aux (L_real _, _) -> ()
-    | L_aux (L_string _, _) -> ()
-    | L_aux (L_hex _, _) -> ()
+    | L_aux (L_unit, _) -> ni_env
+    | L_aux (L_num _, _) -> ni_env
+    | L_aux (L_true, _) | L_aux (L_false, _) -> ni_env
+    | L_aux (L_real _, _) -> ni_env
+    | L_aux (L_string _, _) -> ni_env
+    | L_aux (L_hex _, _) -> ni_env
     | _ -> failwith "Unsupported literal type")
     (* 
     We match literals here to limit what types of literals we currently support in our non-interference
@@ -177,9 +177,10 @@ let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : un
     *)
     
   | E_aux (E_app (id, [e1; e2]), _) when is_binop id ->
-      check_expr env e1 ni_env;
-      check_expr env e2 ni_env;
+      let ni_env' = check_expr env e1 ni_env in
+      let ni_env'' = check_expr env e2 ni_env' in
       Printf.printf "Checking binop expression for non-interference\n";
+      ni_env''
       (*
       Any operator is treated the same in non-interference analysis since it does not matter
       what the operator is. If we have an expression like "x + y", the operator doesn't affect
@@ -203,7 +204,7 @@ let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : un
           check_assignment ni_env input_lat arg_lat (string_of_id id);
           acc
         ) () (List.combine input_lattices args_lattices) in
-      ();
+      ni_env;
 
   | E_aux (E_assign (lexp, value), _) -> (*Assign expressions*)
     (*
@@ -241,10 +242,10 @@ let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : un
         in
         Printf.printf "Checking env for newly added variable %s: %s\n" (string_of_id id) (string_of_mutability mutability);
         let lhs_lattice = find (string_of_id id) ni_env' in
-        check_expr env exps ni_env';
-        let rhs_lattice = infer_lattice ni_env' exps in
+        let ni_env'' = check_expr env exps ni_env' in
+        let rhs_lattice = infer_lattice ni_env'' exps in
         check_assignment ni_env lhs_lattice (first_lattice rhs_lattice) (string_of_id id);
-        check_expr env body ni_env' 
+        check_expr env body ni_env'' 
 
     | P_aux (P_typ (_, pat), _) -> (*Let decl with typed annotation*)
       (match pat with
@@ -257,10 +258,10 @@ let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : un
           in
           Printf.printf "Checking env for newly added variable %s: %s\n" (string_of_id id) (string_of_mutability mutability);
           let lhs_lattice = find (string_of_id id) ni_env' in
-          check_expr env exps ni_env';
-          let rhs_lattice = infer_lattice ni_env' exps in
+          let ni_env'' = check_expr env exps ni_env' in
+          let rhs_lattice = infer_lattice ni_env'' exps in
           check_assignment ni_env lhs_lattice (first_lattice rhs_lattice) (string_of_id id);
-          check_expr env body ni_env' (*The body is the next expression*)
+          check_expr env body ni_env'' (*The body is the next expression*)
 
       | _ -> failwith "Unsupported pattern in typed let expression")
 
@@ -284,60 +285,62 @@ let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : un
       (match lexp with
       | LE_aux (LE_id id, _) ->
           let ni_env' = check_variable_lattice ni_env (string_of_id id) in
-          check_expr env exps ni_env';
-          let lhs_lattice = find (string_of_id id) ni_env' in
-          let rhs_lattice = infer_lattice ni_env' exps in
+          let ni_env'' = check_expr env exps ni_env' in
+          let lhs_lattice = find (string_of_id id) ni_env'' in
+          let rhs_lattice = infer_lattice ni_env'' exps in
           check_assignment ni_env lhs_lattice (first_lattice rhs_lattice) (string_of_id id);
-          check_expr env body ni_env'
+          check_expr env body ni_env''
       | LE_aux (LE_typ (_, id), _) ->
           let ni_env' = check_variable_lattice ni_env (string_of_id id) in
-          check_expr env exps ni_env';
-          let lhs_lattice = find (string_of_id id) ni_env' in
-          let rhs_lattice = infer_lattice ni_env' exps in
+          let ni_env'' = check_expr env exps ni_env' in
+          let lhs_lattice = find (string_of_id id) ni_env'' in
+          let rhs_lattice = infer_lattice ni_env'' exps in
           check_assignment ni_env lhs_lattice (first_lattice rhs_lattice) (string_of_id id);
-          check_expr env body ni_env'
+          check_expr env body ni_env''
       | _ -> failwith "Unsupported lexp in var declaration")
 
   | E_aux (E_block exprs, _) -> (*Block expression*)
-    List.iter (fun e -> check_expr env e ni_env) exprs
+    List.fold_left (fun current_ni_env e -> check_expr env e current_ni_env) ni_env exprs
 
   | E_aux (E_id id, _) -> (*Var expression*)
     let ni_env' = check_variable_lattice ni_env (string_of_id id) in (*Probably shouldn't have this since a var has to be declared before where 
     we probably added it to our environment. Thus this is kind of redundant.*)
-    ()
+    ni_env'
 
   | E_aux (E_if (cond, then_exp, else_exp), _) -> (*If statement*)
   (*In an if statement we check the condition first. If the condition has anything to do with a 
     secret variable, we have to make sure that there are no assigments to public variables in 
   branches.*)
-      check_expr env cond ni_env;
-      (match (first_lattice (infer_lattice ni_env cond)) with
+      let ni_env' = check_expr env cond ni_env in
+      (match (first_lattice (infer_lattice ni_env' cond)) with
       | Secret -> 
           Printf.printf "Condition is secret, checking branches with elevated security level\n";
-          let ni_env' = set_security_level ni_env Secret in 
-          check_expr env then_exp ni_env';
-          check_expr env else_exp ni_env';
+          let ni_env'' = set_security_level ni_env' Secret in 
+          let _ = check_expr env then_exp ni_env'' in
+          let _ = check_expr env else_exp ni_env'' in
+          ni_env'
       | Public -> 
           Printf.printf "Condition is public, checking branches with public security level\n";
-          check_expr env then_exp ni_env;
-          check_expr env else_exp ni_env;)
+          let ni_env_then = check_expr env then_exp ni_env' in
+          check_expr env else_exp ni_env_then;)
           
   | E_aux (E_loop (_,  _, cond, body), _) -> (*Loop expression*)
-        check_expr env cond ni_env;
-        (match (first_lattice (infer_lattice ni_env cond)) with
+        let ni_env' = check_expr env cond ni_env in
+        (match (first_lattice (infer_lattice ni_env' cond)) with
         | Secret -> 
             Printf.printf "Loop condition is secret, checking body with elevated security level\n";
-            let ni_env' = set_security_level ni_env Secret in
-            check_expr env body ni_env';
+            let ni_env'' = set_security_level ni_env' Secret in
+            let _ = check_expr env body ni_env'' in
+            ni_env'
         | Public -> 
             Printf.printf "Loop condition is public, checking body with public security level\n";
-            check_expr env body ni_env; )
+            check_expr env body ni_env'; )
   | E_aux (E_return e, _) -> (*Return stmt*)
     Printf.printf "Reached Return expression \n";
     check_expr env e ni_env
   | _ -> 
     Printf.printf "Expression type not supported in non-interference analysis: %s\n" (string_of_exp expr);
-    ()  
+    ni_env
   
 
 
@@ -418,20 +421,20 @@ let add_functions_to_env (ast : Type_check.typed_ast) (ni_env : ni_env) : ni_env
 
 
 let check_ast (env : Type_check.env) (ast : Type_check.typed_ast) (ni_env : ni_env) = 
-  List.iter (fun def -> 
+  (List.iter (fun def -> 
     match def with
-    | DEF_aux (DEF_fundef (FD_aux (FD_function (_, _, funcls), _)), _) ->
-        List.iter 
+    | DEF_aux (DEF_fundef (FD_aux (FD_function (_, _, funcls), _)), _) -> (*Funcls contains each function definition*)
+        (List.iter (*We iterate over each function definition*)
           (fun (FCL_aux (FCL_funcl (id, pexp), _)) ->
-            Printf.printf "Checking function %s for non-interference\n" (string_of_id id);
             match pexp with
-            |Pat_aux (Pat_exp (input, body), _) -> 
-              let added_input_env = add_input_to_env input ni_env in
-              check_expr env body added_input_env
+            |Pat_aux (Pat_exp (input, body), _) -> (*Pat_exp contains the input parameters as a pattern and the body of the function*)
+              let added_input_env = add_input_to_env input ni_env in (*Parameters are added to the environment*)
+              let _ = check_expr env body added_input_env in (*Output and body are checked for non-interference*)
+              ()
             | _ -> ())
-          funcls 
+          funcls) 
     | _ -> ()
-  ) ast.defs  
+  ) ast.defs)  
 
   (*This function filters out functions included in sail prelude such that we do not analyze them. It works by incrementing a depth counter
   every time we encounter include_start, since all functions herein should be excluded. When we encounter include_end, we return
