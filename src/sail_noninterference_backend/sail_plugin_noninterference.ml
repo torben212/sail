@@ -71,6 +71,15 @@ let convert_string_to_lattice (var_name : string) : lattice =
       else if contains_substring var_name "secret_" then (
         Secret
       )
+      else if contains_substring var_name "user_" then (
+        User
+      )
+      else if contains_substring var_name "supervisor_" then (
+        Supervisor
+      )
+      else if contains_substring var_name "machine_" then (
+        Machine
+      )
       else
         failwith ("Variable " ^ var_name ^ " does not have a valid prefix (public_ or secret_)")
 
@@ -98,6 +107,21 @@ let check_variable_lattice (ni_env : ni_env) (id: string) : ni_env = (*This is t
       )
       else
         ni_env
+        (*New lattices*)
+  | Some User ->
+      if contains_substring id "supervisor_" then (
+        add id Supervisor ni_env
+      )
+      else if contains_substring id "machine_" then (
+        add id Machine ni_env
+      )
+      else ni_env
+  | Some Supervisor ->
+      if contains_substring id "machine_" then (
+        add id Machine ni_env
+      )
+      else ni_env
+  | Some Machine -> ni_env
   | None -> (*The two previous cases should return ni_env all the time since the name changing would mean the id changes but we keep it for completeness*)
       if contains_substring id "public_" then ( (*In this case we check if the variable is being added as public*)
         Printf.printf "Adding variable %s to non-interference environment as Public\n" id;
@@ -110,6 +134,25 @@ let check_variable_lattice (ni_env : ni_env) (id: string) : ni_env = (*This is t
         let ni_env' = add id Secret ni_env in
         let ni_env'' = check_mutability ni_env' id in
         ni_env'')
+      (*New lattices*)
+      else if contains_substring id "user_" then (
+        Printf.printf "Adding variable %s to non-interference environment as User\n" id;
+        let ni_env' = add id User ni_env in
+        let ni_env'' = check_mutability ni_env' id in
+        ni_env''
+      )
+      else if contains_substring id "supervisor_" then (
+        Printf.printf "Adding variable %s to non-interference environment as Supervisor\n" id;
+        let ni_env' = add id Supervisor ni_env in
+        let ni_env'' = check_mutability ni_env' id in
+        ni_env''
+      )
+      else if contains_substring id "machine_" then (
+        Printf.printf "Adding variable %s to non-interference environment as Machine\n" id;
+        let ni_env' = add id Machine ni_env in
+        let ni_env'' = check_mutability ni_env' id in
+        ni_env''
+      )
       else failwith ("Variable " ^ id ^ " does not have a valid security lattice (public_ or secret_)")
 
 
@@ -125,25 +168,49 @@ let is_binop id = (*Helper function to use in identifying a binary operation*)
     (*This function exists to check the security level when assigning a variable such that assignments in loop contexts work
     with non-interference*)  
 let rec check_assignment (ni_env : ni_env) (lhs_lattice : lattice) (rhs_lattice : lattice) (id : string) : unit = 
-    match check_security_level ni_env with
-            | Secret -> (*If we are in a secret context we allow no assignements to public variables, but we allow all other*)
-                (match (lhs_lattice, rhs_lattice) with
-                | (Public, _) ->
-                    failwith ("Non-interference violation: assigning value to public variable " ^ id ^ " in secret context")
-                | _ -> () )
-            | Public ->
-            (match (lhs_lattice, rhs_lattice) with
-            | (Public, Secret) ->
-                failwith ("Non-interference violation: assigning secret value to public variable " ^ id ^ "in public context")
-            | _ -> () )
+    (match check_security_level ni_env with
+      | Secret -> (*If we are in a secret context we allow no assignements to public variables, but we allow all other*)
+        (match (lhs_lattice, rhs_lattice) with
+        | (Public, _) ->
+          failwith ("Non-interference violation: assigning value to public variable " ^ id ^ " in secret context")
+        | (User, _) ->
+          failwith ("Non-interference violation: assigning value to user variable " ^ id ^ " in secret context")
+        | (Supervisor, Supervisor) ->
+          failwith ("Non-interference violation: assigning supervisor value to supervisor variable " ^ id ^ " in secret context")
+        | (Supervisor, Machine) ->
+          failwith ("Non-interference violation: assigning machine value to supervisor variable " ^ id ^ " in secret context")
+        | _ -> () )
+      | Public ->
+        (match (lhs_lattice, rhs_lattice) with
+        | (Public, Secret) ->
+          failwith ("Non-interference violation: assigning secret value to public variable " ^ id ^ "in public context")
+        | (User, Supervisor) -> (*Given you are in user mode*)
+          if (get_ass_sec_lev ni_env = User) then
+            failwith ("Non-interference violation: assigning supervisor value to user variable " ^ id ^ " in public context")
+        | (User, Machine) ->
+          if (get_ass_sec_lev ni_env != Machine) then
+            failwith ("Non-interference violation: assigning machine value to user variable " ^ id ^ " in public context")
+        | (Supervisor, Machine) -> (*Given you are in supervisor mode*)
+          if (get_ass_sec_lev ni_env = Supervisor) then
+            failwith ("Non-interference violation: assigning machine value to supervisor variable " ^ id ^ " in public context")
+        | _ -> () )
+      | _ -> () )
+
 
   (*Infer_lattice is linked to check_expr. It is to be used when inferring lat tices. That is we expect the lattices we infer to already be in the environment.
   This is really only relevant cases that can involve variables. As of such literals are handled as an edge case*)
 let rec infer_lattice (ni_env : ni_env) (expr : 'a exp) : lattice list = 
   match expr with
-  | E_aux (E_lit _, _) -> [Public] (*Literal case*)
+  | E_aux (E_lit _, _) -> 
+    if (get_ass_sec_lev ni_env = User || get_ass_sec_lev ni_env = Supervisor || get_ass_sec_lev ni_env = Machine) then [User] (*These cases are for when we use multiple lattices to simulate Risc-V priv levels*)
+    else
+    [Public] (*Literal case*)
   | E_aux (E_app (id, args), _) when is_binop id -> (*BinOp case; The operator doesn't affect the non-interference properties*)
+  if List.exists (fun e -> infer_lattice ni_env e = [Machine]) args then [Machine] else if List.exists (fun e -> infer_lattice ni_env e = [Supervisor]) args then [Supervisor] else if List.exists (fun e -> infer_lattice ni_env e = [User]) args then [User]
+
+  else (
     if List.exists (fun e -> infer_lattice ni_env e = [Secret]) args then [Secret] else [Public] (* We run through the args and infer lattices. If one is secret, the entirety is treated as being secret*)
+  )
   | E_aux (E_app (id, args), _) -> ( (*Function call case *)
       Printf.printf "Inferring lattice for function application of function %s\n" (string_of_id id);
       let function_lattices = find_function (string_of_id id) ni_env in
@@ -233,17 +300,16 @@ let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : ni
     *)
       (match lexp with 
       | LE_aux (LE_id id, _) ->
+        Printf.printf "Checking assignment to variable %s for non-interference\n" (string_of_id id);
           let ni_env' = check_variable_lattice ni_env (string_of_id id) in (*Update ni_env*)
           (match find_mutability_opt (string_of_id id) ni_env' with
           | Some Fragile ->
             failwith ("Assignment variable " ^ string_of_id id ^ " is fragile and cannot be assigned to\n")
-          | _ -> ());
+          | _ -> ();
           let lhs_lattice = find (string_of_id id) ni_env' in (*find the lattice for the left-hand side*)
-          let rhs_lattice = infer_lattice ni_env value in (*infer the lattice for the right-hand side*)
-          check_assignment ni_env lhs_lattice (first_lattice rhs_lattice)(string_of_id id);
-          check_expr env value ni_env'
-      | LE_aux (LE_deref exp, _) -> check_expr env exp ni_env
-      (*TODO handle Tuple*)
+          let rhs_lattice = infer_lattice ni_env' value in (*infer the lattice for the right-hand side*)
+          check_assignment ni_env' lhs_lattice (first_lattice rhs_lattice) (string_of_id id);
+          check_expr env value ni_env')
       | _ -> failwith "Unsupported lexp in assignment")
 
   | E_aux (E_let (pat, exps, body), _) -> (*Let declarations*)
@@ -337,8 +403,43 @@ let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : ni
       | Public -> 
           Printf.printf "Condition is public, checking branches with public security level\n";
           let ni_env_then = check_expr env then_exp ni_env' in
-          check_expr env else_exp ni_env_then;)
-          
+          check_expr env else_exp ni_env_then;
+      | User ->
+          Printf.printf "Condition is user level, checking branches according to priv level\n";
+          let priv_level = get_ass_sec_lev ni_env in
+          (match priv_level with
+          | User | Supervisor | Machine ->
+            let ni_env_then = check_expr env then_exp ni_env' in
+            check_expr env else_exp ni_env_then;
+          | _ -> ni_env)
+      | Supervisor -> 
+          Printf.printf "Condition is supervisor level, checking branches according to priv level\n";
+          let priv_level = get_ass_sec_lev ni_env in
+          (match priv_level with
+          | User ->
+            let ni_env'' = set_security_level ni_env' Secret in 
+            let _ = check_expr env then_exp ni_env'' in
+            let _ = check_expr env else_exp ni_env'' in
+            ni_env'
+          | Supervisor | Machine ->
+            let ni_env_then = check_expr env then_exp ni_env' in
+            check_expr env else_exp ni_env_then;
+          | _ -> ni_env)
+      | Machine ->
+          Printf.printf "Condition is Machine level, checking branches according to priv level\n";
+          let priv_level = get_ass_sec_lev ni_env in
+          (match priv_level with
+          | User | Supervisor ->
+            let ni_env'' = set_security_level ni_env' Secret in 
+            let _ = check_expr env then_exp ni_env'' in
+            let _ = check_expr env else_exp ni_env'' in
+            ni_env'
+          | Machine ->
+            let ni_env_then = check_expr env then_exp ni_env' in
+            check_expr env else_exp ni_env_then;
+          | _ -> ni_env)
+          )
+
   | E_aux (E_loop (_,  _, cond, body), _) -> (*Loop expression*)
         let ni_env' = check_expr env cond ni_env in
         (match (first_lattice (infer_lattice ni_env' cond)) with
@@ -349,7 +450,40 @@ let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : ni
             ni_env'
         | Public -> 
             Printf.printf "Loop condition is public, checking body with public security level\n";
-            check_expr env body ni_env'; )
+            check_expr env body ni_env'; 
+        | User ->
+            Printf.printf "Loop condition is user level, checking body according to priv level\n";
+            let priv_level = get_ass_sec_lev ni_env in
+            (match priv_level with
+            | User | Supervisor | Machine ->
+                let ni_env_then = check_expr env body ni_env' in
+                ni_env_then
+            | _ -> ni_env)
+        | Supervisor ->
+            Printf.printf "Loop condition is supervisor level, checking body according to priv level\n";
+            let priv_level = get_ass_sec_lev ni_env in
+            (match priv_level with
+            | User  ->
+              let ni_env'' = set_security_level ni_env' Secret in
+              let _ = check_expr env body ni_env'' in
+              ni_env'
+            | Supervisor | Machine ->
+              let ni_env_then = check_expr env body ni_env' in
+              ni_env_then
+            | _ -> ni_env)
+        | Machine ->
+            Printf.printf "Loop condition is machine level, checking body according to priv level\n";
+            let priv_level = get_ass_sec_lev ni_env in
+            (match priv_level with
+            | User | Supervisor ->
+              let ni_env'' = set_security_level ni_env' Secret in
+              let _ = check_expr env body ni_env'' in
+              ni_env'
+            | Machine ->
+              let ni_env_then = check_expr env body ni_env' in
+              ni_env_then
+            | _ -> ni_env)
+        )
   | E_aux (E_return e, _) -> (*Return stmt*)
     Printf.printf "Reached Return expression \n";
     check_expr env e ni_env
@@ -416,20 +550,20 @@ let rec outputs_to_list (expr : 'a exp) (ni_env : ni_env) : lattice list =
   List.rev returns
   (*We take the first return statement as the output lattice. This is a simplification that we make for now, but it should be sufficient for our current purposes. In the future, we might want to consider all return statements and check for consistency among them.*)
 
-let add_functions_to_env (ast : Type_check.typed_ast) (ni_env : ni_env) : ni_env =
+let add_functions_to_env (env : Type_check.env) (ast : Type_check.typed_ast) (ni_env : ni_env) : ni_env =
     List.fold_left (fun acc def ->
       match def with
       | DEF_aux (DEF_fundef (FD_aux (FD_function (_, _, funcls), _)), _) -> 
-        List.fold_left (fun env (FCL_aux (FCL_funcl (id, pexp), _)) ->
+        List.fold_left (fun env1 (FCL_aux (FCL_funcl (id, pexp), _)) ->
           Printf.printf "Adding function %s to non-inteference environment\n" (string_of_id id);
           match pexp with
           |Pat_aux (Pat_exp (input, body), _) ->
             (*Vi burde lave et match case her for at sikre os at der faktisk er inputs*)
             let input_lattice_list = inputs_to_list input ni_env in
             let output_lattice_list = outputs_to_list body ni_env in
-            let updated_env = add_function (string_of_id id) input_lattice_list output_lattice_list env in
+            let updated_env = add_function (string_of_id id) input_lattice_list output_lattice_list env1 in
             updated_env
-          | _ -> env
+          | _ -> env1
           ) acc funcls
       | _ -> acc
             ) ni_env ast.defs
@@ -488,12 +622,13 @@ let noninterference_target out_file { ast; effect_info; env; _ } =
   );
   
   let user_defs = defs_without_includes ast.defs in
-  let ni_env = add_functions_to_env { ast with defs = user_defs } empty_ni_env in
+  let ni_env = add_functions_to_env env { ast with defs = user_defs } empty_ni_env in
   let ni_env = if !opt_security_level <> None then (
     set_ass_sec_lev ni_env (Option.get !opt_security_level)
   ) else ni_env in
   Printf.printf "Security level: %s\n" (string_of_lattice (get_ass_sec_lev ni_env));
   check_ast env { ast with defs = user_defs } ni_env
+
 let _ =
   Target.register
     ~name:"noninterference"
