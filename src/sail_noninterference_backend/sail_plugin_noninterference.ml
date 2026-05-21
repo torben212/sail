@@ -162,7 +162,7 @@ let is_binop id = (*Helper function to use in identifying a binary operation*)
     match op with
     | "+" | "-" | "*" | "/" | "&&" | "||" | "|" | "==" | "!=" | "<" | ">" | "<=" | ">=" | "add_atom"
     | "sub_atom" | "mult_atom" | "gt_int" | "lt_int" | "lteq_int" | "gteq_int" | "eq_int" | "neq_int"
-    | "eq_bool" | "neq_bool" | "or_bool" | "add_bits" -> true
+    | "eq_bool" | "neq_bool" | "or_bool" | "add_bits" | "eq_string" -> true
     | _ -> false
 
     (*This function exists to check the security level when assigning a variable such that assignments in loop contexts work
@@ -191,7 +191,7 @@ let rec check_assignment (ni_env : ni_env) (lhs_lattice : lattice) (rhs_lattice 
           if (get_ass_sec_lev ni_env != Machine) then
             failwith ("Non-interference violation: assigning machine value to user variable " ^ id ^ " in public context")
         | (Supervisor, Machine) -> (*Given you are in supervisor mode*)
-          if (get_ass_sec_lev ni_env = Supervisor) then
+          if (get_ass_sec_lev ni_env = Supervisor || get_ass_sec_lev ni_env = User) then
             failwith ("Non-interference violation: assigning machine value to supervisor variable " ^ id ^ " in public context")
         | _ -> () )
       | _ -> () )
@@ -621,6 +621,8 @@ let noninterference_target out_file { ast; effect_info; env; _ } =
     flush_all ()
   );
   
+
+
   let user_defs = defs_without_includes ast.defs in
   let ni_env = add_functions_to_env env { ast with defs = user_defs } empty_ni_env in
   let ni_env = if !opt_security_level <> None then (

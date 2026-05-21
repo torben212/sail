@@ -1,0 +1,114 @@
+default Order dec
+$include <prelude.sail>
+
+val internal_pick = monadic {_: "internal_pick"}: forall ('a : Type).
+  list('a) -> 'a
+
+val undefined_bool = monadic {_: "undefined_bool"}: unit -> bool
+
+val undefined_bit = monadic {_: "undefined_bit"}: unit -> bitvector(1)
+
+val undefined_int = monadic {_: "undefined_int"}: unit -> int
+
+val undefined_nat = monadic {_: "undefined_nat"}: unit -> nat
+
+val undefined_real = monadic {_: "undefined_real"}: unit -> real
+
+val undefined_string = monadic {_: "undefined_string"}: unit -> string
+
+val undefined_list = monadic {_: "undefined_list"}: forall ('a : Type).
+  'a -> list('a)
+
+val undefined_range = monadic {_: "undefined_range"}: forall ('n : Int) ('m : Int).
+  (int('n), int('m)) -> range('n, 'm)
+
+val undefined_vector = monadic {_: "undefined_vector"}: forall ('n : Int) ('a : Type).
+  (int('n), 'a) -> vector('n, 'a)
+
+val undefined_bitvector = monadic {_: "undefined_bitvector"}: forall ('n : Int).
+  int('n) -> bitvector('n)
+
+val undefined_unit = monadic {_: "undefined_unit"}: unit -> unit
+
+val trapcause_is_interrupt : int -> bool
+
+$[complete]
+function trapcause_is_interrupt user_cause = {
+    if $[overloaded { "name" = "==", "is_infix" = true }] eq_int(user_cause, 0) then {
+        return(true)
+    } else {
+        return(false)
+    }
+}
+
+val trapCause_bits : int -> int
+
+$[complete]
+function trapCause_bits user_c : int = {
+    return(1)
+}
+
+val zicfilp_preserve_elp_on_trap : string -> unit
+
+$[complete]
+function zicfilp_preserve_elp_on_trap user_del_priv : string = {
+    {
+        let supervisor_mstatus_spelp = user_del_priv;
+        ()
+    }
+}
+
+val bool_to_bit : bool -> int
+
+$[complete]
+function bool_to_bit user_b : bool = {
+    if user_b then {
+        return(1)
+    } else {
+        return(0)
+    }
+}
+
+val zero_extend : int -> int
+
+$[complete]
+function zero_extend user_i : int = {
+    return(1)
+}
+
+val trap_handler : (string, int, int) -> int
+
+$[complete]
+function trap_handler (user_del_priv : string, user_c : int, user_pc : int) = {
+    let machine_mstatus_mie = 0;
+    let supervisor_mstatus_pie = 0;
+    let user_is_interrupt = trapcause_is_interrupt(user_c);
+    let user_cause = trapCause_bits(user_c);
+    zicfilp_preserve_elp_on_trap(user_del_priv);
+    {
+        let supervisor_scause_is_interrupt = bool_to_bit(user_is_interrupt);
+        let supervisor_scause_cause = zero_extend(user_cause);
+        let supervisor_mstatus_spie = supervisor_mstatus_pie;
+        let supervisor_mstatus_sie = 0;
+        let supervisor_sepc = user_pc;
+        return(0)
+    }
+}
+
+val main : unit -> unit
+
+$[complete]
+function main () = {
+    let user_del_priv = "Machine";
+    let user_c = 1;
+    let user_pc = 1;
+    let user_result = trap_handler(user_del_priv, user_c, user_pc);
+    ()
+}
+
+$[global]
+val initialize_registers : unit -> unit
+
+$[complete]
+$[global]
+function initialize_registers () = ()

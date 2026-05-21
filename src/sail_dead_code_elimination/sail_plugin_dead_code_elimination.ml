@@ -41,13 +41,13 @@ let dead_code_elimination_options =
 
 let is_boolean_binop id =
   let op = string_of_id id in
-  Printf.printf "Checking if operator %s is a binary operator\n" op;
   match op with
     | "&&" | "||" | "==" | "!=" | "<" | ">" | "<=" | ">=" | "gt_int" | "lt_int" | "lteq_int" | "gteq_int" | "eq_int" | "neq_int"
-    | "eq_bool" | "neq_bool" -> true
+    | "eq_bool" | "neq_bool" | "eq_string" -> true
     | _ -> false
 
 let rec evaluate_boolean_expr (expr : 'a exp) (dc_env : dc_env) : string option =
+  Printf.printf "Evaluating expression: %s\n" (string_of_exp expr);
   match expr with
   | E_aux (E_app (id, args), _) when is_boolean_binop id ->
     let evaluated_args = List.map (fun arg -> evaluate_boolean_expr arg dc_env) args in
@@ -66,7 +66,9 @@ let rec evaluate_boolean_expr (expr : 'a exp) (dc_env : dc_env) : string option 
             | (Some "false", Some "false") -> Some "false"
             | (Some "true", _) | (_, Some "true") -> Some "true"
             | _ -> None)
-          | "==" -> if arg1 = arg2 then Some "true" else Some "false"
+          | "==" | "eq_string" -> 
+              print_endline ("Comparing " ^ (Option.value arg1 ~default:"None") ^ " and " ^ (Option.value arg2 ~default:"None"));
+              if arg1 = arg2 then Some "true" else Some "false"
           | "!=" -> if arg1 <> arg2 then Some "true" else Some "false"
           | "<" -> (match (arg1, arg2) with
             | (Some a, Some b) when (int_of_string a) < (int_of_string b) -> Some "true"
@@ -84,7 +86,7 @@ let rec evaluate_boolean_expr (expr : 'a exp) (dc_env : dc_env) : string option 
             | (Some a, Some b) when (int_of_string a) >= (int_of_string b) -> Some "true"
             | (Some a, Some b) when (int_of_string a) < (int_of_string b) -> Some "false"
             | _ -> None)
-          | _ -> None))
+            | _ -> None))
       else if List.length evaluated_args = 1 then
         let arg = List.nth evaluated_args 0 in
         (match string_of_id id with
@@ -95,15 +97,19 @@ let rec evaluate_boolean_expr (expr : 'a exp) (dc_env : dc_env) : string option 
           | _ -> None)
       else None
   | E_aux (E_lit lit, _) -> (match lit with
-      | L_aux (L_num n, _) -> (Printf.printf "Evaluating literal\n" ;Some (Int.to_string (Big_int.to_int n)))
+      | L_aux (L_num n, _) -> (Some (Int.to_string (Big_int.to_int n)))
+      | L_aux (L_string s, _) -> Some s
+      | L_aux (L_true, _) -> Some "true"
+      | L_aux (L_false, _) -> Some "false"
       | _ -> None)
-  | E_aux (E_id id, _) -> (Printf.printf "Evaluating identifier %s\n" (string_of_id id); find_variable_opt (string_of_id id) dc_env)
-  | _ -> None
+  | E_aux (E_id id, _) -> (find_variable_opt (string_of_id id) dc_env)
+  | _ -> 
+    Printf.printf "Expression type not supported for evaluation: %s\n" (string_of_exp expr);
+    None
 
 let rec check_expr (env : Type_check.env) (exp : 'a exp) (dc_env : dc_env) : 'a exp =
   match exp with
   | E_aux (E_block exps, dummy) -> 
-    Printf.printf "Checking block expression for dead code elimination\n";
     let checked_exps = (List.fold_left (fun acc exp ->
       let checked_expression = check_expr env exp dc_env in
       match checked_expression with
@@ -111,7 +117,6 @@ let rec check_expr (env : Type_check.env) (exp : 'a exp) (dc_env : dc_env) : 'a 
         | _ -> acc @ [checked_expression]) [] exps) in
       (E_aux (E_block checked_exps, dummy))
   | E_aux (E_let (pat, exps, body), dummy) -> 
-    Printf.printf "Checking let expression for dead code elimination\n";
     (E_aux (E_let (pat, exps, check_expr env body dc_env), dummy))
   | E_aux (E_if (cond, then_exp, else_exp), dummy) ->
     let cond_val = evaluate_boolean_expr cond dc_env in
@@ -128,12 +133,15 @@ let rec check_expr (env : Type_check.env) (exp : 'a exp) (dc_env : dc_env) : 'a 
     | _ -> raise (Failure "Condition expression did not evaluate to a boolean literal or undetermined value")    
     )
   | E_aux (E_return e, d) ->
-    Printf.printf "Checking return expression for dead code elimination\n";
     (E_aux (E_return (check_expr env e dc_env), d))
   | E_aux (E_lit (L_aux (L_unit, Parse_ast.Unknown)), annot) ->
       E_aux (E_lit (L_aux (L_unit, Parse_ast.Unknown)), annot)
   | E_aux (E_lit lit, dummy) ->
       (E_aux (E_lit lit, dummy))
+  | E_aux (E_app (id, args), dummy) -> (*Function call *)
+      E_aux (E_app (id, args), dummy)
+  | E_aux (E_id id, _) ->
+    raise (Failure "Variable references not supported in dead code elimination")
   | _ -> raise (Failure "Expression type not supported in dead code elimination")
 
 
@@ -148,24 +156,21 @@ let is_named_function_val_spec val_spec =
 let check_ast (env : Type_check.env) (ast : Type_check.typed_ast) (dc_env : dc_env) : Type_check.typed_ast = 
   let output_ast = List.fold_left (fun acc def -> 
     match def with
-    | DEF_aux (DEF_val val_spec, _) when is_named_function_val_spec val_spec ->
+    | DEF_aux (DEF_val val_spec, _) ->
         acc @ [def]
     | DEF_aux (DEF_fundef (FD_aux (FD_function (d1, d2, funcls), d3)), d4) ->
         (let func_ast = (List.fold_left 
           (fun acc (FCL_aux (FCL_funcl (id, pexp), d5)) ->
-            if string_of_id id = "main" || string_of_id id = "foo" then (
             Printf.printf "Checking function %s for dead code\n" (string_of_id id);
             match pexp with
             |Pat_aux (Pat_exp (input, body), d6) -> 
               let checked_ast = check_expr env body dc_env in
               acc @ [DEF_aux (DEF_fundef (FD_aux (FD_function (d1, d2, [(FCL_aux (FCL_funcl (id, Pat_aux (Pat_exp (input, checked_ast), d6)), d5))]), d3)), d4)]
-            | _ -> acc)
-              else acc))
+            | _ -> acc))
           [] funcls in
           acc @ func_ast)
     | _ -> acc
   ) [] ast.defs in
-  Printf.printf "Length of output_ast defs is %d \n" (List.length output_ast);
   { ast with defs = output_ast}
 
 let defs_without_includes defs =
@@ -213,18 +218,21 @@ let dead_code_elimination_target out_file { ast; effect_info; env; _ } =
     while true do
       let line = input_line read_ass in
       match get_variable_and_literal line with
-        | Some (v, _) -> print_endline (Option.value (find_variable_opt v !dc_env) ~default:"Variable not found")
-        | None -> ()
+        | Some (v, _) -> print_endline ("v is " ^ (Option.value (find_variable_opt v !dc_env) ~default:"Variable not found"))
+        | None -> print_endline (Option.value (find_variable_opt line !dc_env) ~default:"Variable not found when parsing empty line")
     done
     with
     | End_of_file -> close_in read_ass
     | e -> close_in_noerr read_ass; raise e);
 
 
-  let output_ast = check_ast env ast !dc_env in
+  let user_defs = defs_without_includes ast.defs in
+  
+
+
+  let output_ast = check_ast env { ast with defs = user_defs } !dc_env in
   let temp_dir = (output_dir ^  "/temp/" ^ output_filename) in
   Printf.printf "Checked AST beginning printing\n";
-  Printf.printf "Output direcotry for temp file:%s \n" temp_dir;
   let chan = open_out temp_dir in
   let stripped = Type_check.strip_ast output_ast in
   Pretty_print_sail.output_ast chan stripped;
