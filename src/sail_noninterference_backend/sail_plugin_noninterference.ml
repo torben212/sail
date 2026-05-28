@@ -173,26 +173,44 @@ let rec check_assignment (ni_env : ni_env) (lhs_lattice : lattice) (rhs_lattice 
         (match (lhs_lattice, rhs_lattice) with
         | (Public, _) ->
           failwith ("Non-interference violation: assigning value to public variable " ^ id ^ " in secret context")
-        | (User, _) ->
-          failwith ("Non-interference violation: assigning value to user variable " ^ id ^ " in secret context")
-        | (Supervisor, Supervisor) ->
-          failwith ("Non-interference violation: assigning supervisor value to supervisor variable " ^ id ^ " in secret context")
-        | (Supervisor, Machine) ->
-          failwith ("Non-interference violation: assigning machine value to supervisor variable " ^ id ^ " in secret context")
         | _ -> () )
       | Public ->
         (match (lhs_lattice, rhs_lattice) with
         | (Public, Secret) ->
           failwith ("Non-interference violation: assigning secret value to public variable " ^ id ^ "in public context")
-        | (User, Supervisor) -> (*Given you are in user mode*)
+        | _ -> () )
+      | User ->
+        (match (lhs_lattice, rhs_lattice) with
+        | (User, Supervisor) -> 
           if (get_ass_sec_lev ni_env = User) then
-            failwith ("Non-interference violation: assigning supervisor value to user variable " ^ id ^ " in public context")
+            failwith ("Non-interference violation: assigning supervisor value to user variable " ^ id ^ " in public context with level " ^ string_of_int (get_ass_sec_lev ni_env))
         | (User, Machine) ->
           if (get_ass_sec_lev ni_env != Machine) then
-            failwith ("Non-interference violation: assigning machine value to user variable " ^ id ^ " in public context")
-        | (Supervisor, Machine) -> (*Given you are in supervisor mode*)
-          if (get_ass_sec_lev ni_env = Supervisor || get_ass_sec_lev ni_env = User) then
-            failwith ("Non-interference violation: assigning machine value to supervisor variable " ^ id ^ " in public context")
+            failwith ("Non-interference violation: assigning machine value to user variable " ^ id ^ " in public context with level " ^ string_of_int (get_ass_sec_lev ni_env))
+        | (Supervisor, Machine) -> 
+          if (get_ass_sec_lev ni_env != Machine) then
+            failwith ("Non-interference violation: assigning machine value to supervisor variable " ^ id ^ " in public context with level " ^ string_of_int (get_ass_sec_lev ni_env))
+        | _ -> () )
+      | Supervisor ->
+        (match (lhs_lattice, rhs_lattice) with
+        | (User, Supervisor) ->
+          if (get_ass_sec_lev ni_env = User) then
+            failwith ("Non-interference violation: assigning value to user variable " ^ id ^ " in supervisor context with level " ^ string_of_int (get_ass_sec_lev ni_env))
+        | (User, Machine) ->
+          if (get_ass_sec_lev ni_env != Machine) then
+            failwith ("Non-interference violation: assigning machine value to user variable " ^ id ^ " in supervisor context with level " ^ string_of_int (get_ass_sec_lev ni_env))
+        | (Supervisor, Machine) ->
+          if (get_ass_sec_lev ni_env != Machine) then
+          failwith ("Non-interference violation: assigning machine value to supervisor variable " ^ id ^ " in supervisor context with level " ^ string_of_int (get_ass_sec_lev ni_env))
+        | _ -> () )
+      | Machine ->
+        (match (lhs_lattice, rhs_lattice) with
+        | (User, _) ->
+          if (get_ass_sec_lev ni_env != Machine) then
+            failwith ("Non-interference violation: assigning value to user variable " ^ id ^ " in machine context with level " ^ string_of_int (get_ass_sec_lev ni_env))
+        | (Supervisor, _) ->
+          if (get_ass_sec_lev ni_env != Machine) then
+            failwith ("Non-interference violation: assigning supervisor value to supervisor variable " ^ id ^ " in machine context with level " ^ string_of_int (get_ass_sec_lev ni_env))
         | _ -> () )
       | _ -> () )
 
@@ -406,38 +424,20 @@ let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : ni
           check_expr env else_exp ni_env_then;
       | User ->
           Printf.printf "Condition is user level, checking branches according to priv level\n";
-          let priv_level = get_ass_sec_lev ni_env in
-          (match priv_level with
-          | User | Supervisor | Machine ->
-            let ni_env_then = check_expr env then_exp ni_env' in
-            check_expr env else_exp ni_env_then;
-          | _ -> ni_env)
+          let ni_env'' = set_security_level ni_env' User in
+          let ni_env_then = check_expr env then_exp ni_env'' in
+          check_expr env else_exp ni_env_then;
+
       | Supervisor -> 
           Printf.printf "Condition is supervisor level, checking branches according to priv level\n";
-          let priv_level = get_ass_sec_lev ni_env in
-          (match priv_level with
-          | User ->
-            let ni_env'' = set_security_level ni_env' Secret in 
-            let _ = check_expr env then_exp ni_env'' in
-            let _ = check_expr env else_exp ni_env'' in
-            ni_env'
-          | Supervisor | Machine ->
-            let ni_env_then = check_expr env then_exp ni_env' in
-            check_expr env else_exp ni_env_then;
-          | _ -> ni_env)
+          let ni_env'' = set_security_level ni_env' Supervisor in
+          let ni_env_then = check_expr env then_exp ni_env'' in
+          check_expr env else_exp ni_env_then;
       | Machine ->
           Printf.printf "Condition is Machine level, checking branches according to priv level\n";
-          let priv_level = get_ass_sec_lev ni_env in
-          (match priv_level with
-          | User | Supervisor ->
-            let ni_env'' = set_security_level ni_env' Secret in 
-            let _ = check_expr env then_exp ni_env'' in
-            let _ = check_expr env else_exp ni_env'' in
-            ni_env'
-          | Machine ->
-            let ni_env_then = check_expr env then_exp ni_env' in
-            check_expr env else_exp ni_env_then;
-          | _ -> ni_env)
+          let ni_env'' = set_security_level ni_env' Machine in
+          let ni_env_then = check_expr env then_exp ni_env'' in
+          check_expr env else_exp ni_env_then;
           )
 
   | E_aux (E_loop (_,  _, cond, body), _) -> (*Loop expression*)
@@ -453,36 +453,19 @@ let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : ni
             check_expr env body ni_env'; 
         | User ->
             Printf.printf "Loop condition is user level, checking body according to priv level\n";
-            let priv_level = get_ass_sec_lev ni_env in
-            (match priv_level with
-            | User | Supervisor | Machine ->
-                let ni_env_then = check_expr env body ni_env' in
-                ni_env_then
-            | _ -> ni_env)
+            let ni_env'' = set_security_level ni_env' User in
+            let _ = check_expr env body ni_env'' in
+            ni_env'
         | Supervisor ->
             Printf.printf "Loop condition is supervisor level, checking body according to priv level\n";
-            let priv_level = get_ass_sec_lev ni_env in
-            (match priv_level with
-            | User  ->
-              let ni_env'' = set_security_level ni_env' Secret in
-              let _ = check_expr env body ni_env'' in
-              ni_env'
-            | Supervisor | Machine ->
-              let ni_env_then = check_expr env body ni_env' in
-              ni_env_then
-            | _ -> ni_env)
+            let ni_env'' = set_security_level ni_env' Supervisor in
+            let _ = check_expr env body ni_env'' in
+            ni_env'
         | Machine ->
             Printf.printf "Loop condition is machine level, checking body according to priv level\n";
-            let priv_level = get_ass_sec_lev ni_env in
-            (match priv_level with
-            | User | Supervisor ->
-              let ni_env'' = set_security_level ni_env' Secret in
-              let _ = check_expr env body ni_env'' in
-              ni_env'
-            | Machine ->
-              let ni_env_then = check_expr env body ni_env' in
-              ni_env_then
-            | _ -> ni_env)
+            let ni_env'' = set_security_level ni_env' Machine in
+            let _ = check_expr env body ni_env'' in
+            ni_env'
         )
   | E_aux (E_return e, _) -> (*Return stmt*)
     Printf.printf "Reached Return expression \n";

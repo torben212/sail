@@ -1,11 +1,11 @@
 default Order dec
 $include <prelude.sail>
 
-val foo : (int, int) -> int
+val check_access : (int, int) -> int
 
 // This test is to demonstrate that if we were able to bypass the access control checks, then we could write to a read-only CSR
 
-function foo (fragile_public_CSR, public_operation_access_level) = {
+function check_access (fragile_public_CSR, public_operation_access_level) = {
     let public_bypass : bool = true;
     var fragile_public_CSR2 : int = fragile_public_CSR;
     let public_new_CSR : int = 1;
@@ -24,6 +24,6 @@ val main : unit -> int
 function main () = {
     let public_operation_access_level : int = 1;
     let fragile_public_CSR : int = 10;
-    let public_result : int = foo(fragile_public_CSR, public_operation_access_level);
+    let public_result : int = check_access(fragile_public_CSR, public_operation_access_level);
     return public_result;
 }
