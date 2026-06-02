@@ -178,41 +178,49 @@ let rec check_assignment (ni_env : ni_env) (lhs_lattice : lattice) (rhs_lattice 
         (match (lhs_lattice, rhs_lattice) with
         | (Public, Secret) ->
           failwith ("Non-interference violation: assigning secret value to public variable " ^ id ^ "in public context")
+        | (User, Supervisor) -> (*We need to add checks for user, supervisor and machine here since default is Public context*)
+          if (get_ass_sec_lev ni_env = User) then
+            failwith ("Non-interference violation: assigning supervisor value to user variable " ^ id ^ " in public context with level " ^ string_of_lattice (get_ass_sec_lev ni_env))
+        | (User, Machine) ->
+          if (get_ass_sec_lev ni_env != Machine) then
+            failwith ("Non-interference violation: assigning machine value to user variable " ^ id ^ " in public context with level " ^ string_of_lattice (get_ass_sec_lev ni_env))
+        | (Supervisor, Machine) -> 
+          if (get_ass_sec_lev ni_env != Machine) then
+            failwith ("Non-interference violation: assigning machine value to supervisor variable " ^ id ^ " in public context with level " ^ string_of_lattice (get_ass_sec_lev ni_env))
         | _ -> () )
       | User ->
         (match (lhs_lattice, rhs_lattice) with
         | (User, Supervisor) -> 
           if (get_ass_sec_lev ni_env = User) then
-            failwith ("Non-interference violation: assigning supervisor value to user variable " ^ id ^ " in public context with level " ^ string_of_int (get_ass_sec_lev ni_env))
+            failwith ("Non-interference violation: assigning supervisor value to user variable " ^ id ^ " in public context with level " ^ string_of_lattice (get_ass_sec_lev ni_env))
         | (User, Machine) ->
           if (get_ass_sec_lev ni_env != Machine) then
-            failwith ("Non-interference violation: assigning machine value to user variable " ^ id ^ " in public context with level " ^ string_of_int (get_ass_sec_lev ni_env))
+            failwith ("Non-interference violation: assigning machine value to user variable " ^ id ^ " in public context with level " ^ string_of_lattice (get_ass_sec_lev ni_env))
         | (Supervisor, Machine) -> 
           if (get_ass_sec_lev ni_env != Machine) then
-            failwith ("Non-interference violation: assigning machine value to supervisor variable " ^ id ^ " in public context with level " ^ string_of_int (get_ass_sec_lev ni_env))
+            failwith ("Non-interference violation: assigning machine value to supervisor variable " ^ id ^ " in public context with level " ^ string_of_lattice (get_ass_sec_lev ni_env))
         | _ -> () )
       | Supervisor ->
         (match (lhs_lattice, rhs_lattice) with
         | (User, Supervisor) ->
           if (get_ass_sec_lev ni_env = User) then
-            failwith ("Non-interference violation: assigning value to user variable " ^ id ^ " in supervisor context with level " ^ string_of_int (get_ass_sec_lev ni_env))
+            failwith ("Non-interference violation: assigning value to user variable " ^ id ^ " in supervisor context with level " ^ string_of_lattice (get_ass_sec_lev ni_env))
         | (User, Machine) ->
           if (get_ass_sec_lev ni_env != Machine) then
-            failwith ("Non-interference violation: assigning machine value to user variable " ^ id ^ " in supervisor context with level " ^ string_of_int (get_ass_sec_lev ni_env))
+            failwith ("Non-interference violation: assigning machine value to user variable " ^ id ^ " in supervisor context with level " ^ string_of_lattice (get_ass_sec_lev ni_env))
         | (Supervisor, Machine) ->
           if (get_ass_sec_lev ni_env != Machine) then
-          failwith ("Non-interference violation: assigning machine value to supervisor variable " ^ id ^ " in supervisor context with level " ^ string_of_int (get_ass_sec_lev ni_env))
+          failwith ("Non-interference violation: assigning machine value to supervisor variable " ^ id ^ " in supervisor context with level " ^ string_of_lattice (get_ass_sec_lev ni_env))
         | _ -> () )
       | Machine ->
         (match (lhs_lattice, rhs_lattice) with
         | (User, _) ->
           if (get_ass_sec_lev ni_env != Machine) then
-            failwith ("Non-interference violation: assigning value to user variable " ^ id ^ " in machine context with level " ^ string_of_int (get_ass_sec_lev ni_env))
+            failwith ("Non-interference violation: assigning value to user variable " ^ id ^ " in machine context with level " ^ string_of_lattice (get_ass_sec_lev ni_env))
         | (Supervisor, _) ->
           if (get_ass_sec_lev ni_env != Machine) then
-            failwith ("Non-interference violation: assigning supervisor value to supervisor variable " ^ id ^ " in machine context with level " ^ string_of_int (get_ass_sec_lev ni_env))
-        | _ -> () )
-      | _ -> () )
+            failwith ("Non-interference violation: assigning supervisor value to supervisor variable " ^ id ^ " in machine context with level " ^ string_of_lattice (get_ass_sec_lev ni_env))
+        | _ -> () ))
 
 
   (*Infer_lattice is linked to check_expr. It is to be used when inferring lat tices. That is we expect the lattices we infer to already be in the environment.
