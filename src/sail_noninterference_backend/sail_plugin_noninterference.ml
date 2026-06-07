@@ -425,28 +425,30 @@ let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : ni
           let ni_env'' = set_security_level ni_env' Secret in 
           let _ = check_expr env then_exp ni_env'' in
           let _ = check_expr env else_exp ni_env'' in
-          ni_env'
+          ni_env';
       | Public -> 
           Printf.printf "Condition is public, checking branches with public security level\n";
-          let ni_env_then = check_expr env then_exp ni_env' in
-          check_expr env else_exp ni_env_then;
+          let _ = check_expr env then_exp ni_env' in
+          let _ = check_expr env else_exp ni_env' in
+          ni_env';
       | User ->
           Printf.printf "Condition is user level, checking branches according to priv level\n";
           let ni_env'' = set_security_level ni_env' User in
-          let ni_env_then = check_expr env then_exp ni_env'' in
-          check_expr env else_exp ni_env_then;
-
+          let _ = check_expr env then_exp ni_env'' in
+          let _ = check_expr env else_exp ni_env'' in
+          ni_env';
       | Supervisor -> 
           Printf.printf "Condition is supervisor level, checking branches according to priv level\n";
           let ni_env'' = set_security_level ni_env' Supervisor in
-          let ni_env_then = check_expr env then_exp ni_env'' in
-          check_expr env else_exp ni_env_then;
+          let _ = check_expr env then_exp ni_env'' in
+          let _ = check_expr env else_exp ni_env'' in
+          ni_env';
       | Machine ->
           Printf.printf "Condition is Machine level, checking branches according to priv level\n";
           let ni_env'' = set_security_level ni_env' Machine in
-          let ni_env_then = check_expr env then_exp ni_env'' in
-          check_expr env else_exp ni_env_then;
-          )
+          let _ = check_expr env then_exp ni_env'' in
+          let _ = check_expr env else_exp ni_env'' in
+          ni_env';)
 
   | E_aux (E_loop (_,  _, cond, body), _) -> (*Loop expression*)
         let ni_env' = check_expr env cond ni_env in
@@ -458,7 +460,8 @@ let rec check_expr (env : Type_check.env) (expr : 'a exp) (ni_env : ni_env) : ni
             ni_env'
         | Public -> 
             Printf.printf "Loop condition is public, checking body with public security level\n";
-            check_expr env body ni_env'; 
+            let _ = check_expr env body ni_env' in
+            ni_env';
         | User ->
             Printf.printf "Loop condition is user level, checking body according to priv level\n";
             let ni_env'' = set_security_level ni_env' User in
@@ -618,8 +621,8 @@ let noninterference_target out_file { ast; effect_info; env; _ } =
   let ni_env = add_functions_to_env env { ast with defs = user_defs } empty_ni_env in
   let ni_env = if !opt_security_level <> None then (
     set_ass_sec_lev ni_env (Option.get !opt_security_level)
-  ) else ni_env in
-  Printf.printf "Security level: %s\n" (string_of_lattice (get_ass_sec_lev ni_env));
+  ) else set_ass_sec_lev ni_env Public in
+  Printf.printf "Privilege level: %s\n" (string_of_lattice (get_ass_sec_lev ni_env));
   check_ast env { ast with defs = user_defs } ni_env
 
 let _ =

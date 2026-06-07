@@ -140,8 +140,8 @@ let rec check_expr (env : Type_check.env) (exp : 'a exp) (dc_env : dc_env) : 'a 
       (E_aux (E_lit lit, dummy))
   | E_aux (E_app (id, args), dummy) -> (*Function call *)
       E_aux (E_app (id, args), dummy)
-  | E_aux (E_id id, _) ->
-    raise (Failure "Variable references not supported in dead code elimination")
+  | E_aux (E_id id, dummy) ->
+      E_aux (E_id id, dummy)
   | _ -> raise (Failure "Expression type not supported in dead code elimination")
 
 
