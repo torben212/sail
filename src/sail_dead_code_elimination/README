@@ -1,28 +1,7 @@
 dead code elimination command
 
-sail --dead-code-elimination --dead-code-elimination-output-file basic_if --dead-code-elimination-assumptions-file ./test/non_interference/dead_code_assumptions/HelloWorld ./test/non_interference/dead_code_inputs/dc_basic_if.sail
+- sail> sail --dead-code-elimination --dead-code-elimination-output-file <filename> --dead-code-elimination-assumptions-file ./test/non_interference/dead_code_assumptions/<filename> ./test/non_interference/dead_code_inputs/<filename>.sail
 
-non interference comand
+non interference command
 
-sail --noninterference ./test/non_interference/dead_code_output/basic_if.sail --noninterference-security-level <security_level>
-
-# Interisting things we have found
-
-Definition mstatus_ref := {|
-  name := "mstatus";
-  read_from := (fun s => s.(mstatus));
-  write_to := (fun v s => ({[ s with mstatus := v ]}));
-  of_regval := (fun v => Mstatus_of_regval v);
-  regval_of := (fun v => regval_of_Mstatus v) |}.
-
-  _get_Mstatus
-
-  Definition execute_SFENCE_VMA
-
-
-  Definition privLevel_to_str (p : Privilege) 
-: string :=
-   
-   match p with | User => "U" | Supervisor => "S" | Machine => "M" end.
-
-Riscv.thy
+- sail --noninterference ./test/non_interference/dead_code_output/<filename>.sail --noninterference-security-level <privilege_level>

@@ -1,0 +1,17 @@
+This directory contains the plugin for non-interference. 
+To analyze a program, follow the Sail installation guide to setup Sail.
+Remember to have the newest version of Ocaml.
+
+Running the plugin through the terminal:
+1. enter wsl: 
+- \sail> wsl
+2. Build and install dune
+- \sail> dune clean
+- \sail> dune build
+- \sail> dune install
+3. Run the program
+- \sail> sail --noninterference ./<directory>/<filename>.sail
+4. To run with privilege level assumption, use the following command
+- \sail> sail --noninterference ./<directory>/<filename>.sail --noninterference-security-level <privilegeLevel>
+
+To run dead-code elimination first, please read the README file in \sail\src\sail_dead_code_elimination
